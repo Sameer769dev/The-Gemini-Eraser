@@ -1,0 +1,16 @@
+# ─── Core framework ───────────────────────────────────────────────────────────
+fastapi==0.115.12
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# ─── AI model ─────────────────────────────────────────────────────────────────
+simple-lama-inpainting==0.1.2
+onnxruntime==1.21.0
+
+# ─── Image processing ─────────────────────────────────────────────────────────
+# Use headless OpenCV — no need for a display server (libGL) in Docker
+opencv-python-headless==4.11.0.86
+Pillow==11.2.1
+
+# ─── Networking / utils ───────────────────────────────────────────────────────
+numpy==2.2.4

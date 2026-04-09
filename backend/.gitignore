@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Model weights cache (will be baked into Docker image, not committed)
+.cache/
+huggingface/
+*.onnx
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Render config (no longer needed)
+render.yaml
+
+# IDE
+.idea/
+.vscode/
