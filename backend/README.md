@@ -1,13 +1,13 @@
 ---
 title: Gemini Eraser AI Backend
-emoji: ✦
+emoji: ✨
 colorFrom: purple
-colorTo: cyan
+colorTo: blue
 sdk: docker
 app_port: 7860
 pinned: true
 license: mit
-short_description: Production AI inpainting API using LaMa for watermark removal
+short_description: AI inpainting API using LaMa
 ---
 
 # ✦ Gemini Eraser — AI Inpainting Backend
