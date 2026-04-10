@@ -53,7 +53,7 @@ private val SLIDES
     @Composable get() = listOf(
     LuxSlide(
         emoji      = "✦",
-        title      = "Magic Eraser Pro",
+        title      = "Gemini Eraser",
         body       = "AI-powered watermark & object removal.\nPremium results in seconds.",
         accent     = MaterialTheme.colorScheme.primary,
         auroraShift = Color(0xFF3A1800),

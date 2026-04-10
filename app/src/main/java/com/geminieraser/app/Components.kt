@@ -20,6 +20,8 @@ import androidx.compose.ui.unit.*
 import androidx.compose.ui.window.*
 import coil.compose.AsyncImage
 
+data class GalleryImage(val id: Int, val uri: Uri)
+
 // ----------------------------------------------------
 // GLASS LIMIT DIALOG
 // ----------------------------------------------------

@@ -33,32 +33,58 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.*
+import android.graphics.Canvas as AndroidCanvas
+import android.graphics.Color as AndroidColor
+import android.graphics.Paint as AndroidPaint
+import android.graphics.Paint.Cap
+import android.graphics.Paint.Join
+import android.app.Activity
+import android.content.ContextWrapper
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.opencv.android.OpenCVLoader
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.viewinterop.AndroidView
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.AdSize
+import com.google.android.gms.ads.AdView
+import com.google.android.gms.ads.MobileAds
+import com.geminieraser.app.billing.BillingManager
+import com.geminieraser.app.ads.AdManager
 
 class MainActivity : ComponentActivity() {
+    private lateinit var billingManager: BillingManager
+    private lateinit var adManager: AdManager
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (!OpenCVLoader.initLocal()) {
-            Toast.makeText(this, "OpenCV failed to load", Toast.LENGTH_LONG).show()
-            return
-        }
+        
+        MobileAds.initialize(this) {}
+        billingManager = BillingManager(this)
+        adManager = AdManager(this)
+
         setContent {
             GeminiEraserTheme {
-                GeminiEraserApp()
+                GeminiEraserApp(billingManager, adManager)
             }
         }
     }
+}
+
+tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -84,20 +110,33 @@ enum class ProcessingState { IDLE, PROCESSING, DONE, ERROR }
 // ROOT APP
 // ────────────────────────────────────────────────────────────────────────────
 @Composable
-fun GeminiEraserApp() {
+fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
     val context     = LocalContext.current
     val coroutine   = rememberCoroutineScope()
+    val isPremium   by billingManager.isPremium.collectAsState()
 
     var sourceBitmap    by remember { mutableStateOf<Bitmap?>(null) }
     var resultBitmap    by remember { mutableStateOf<Bitmap?>(null) }
     var state           by remember { mutableStateOf(ProcessingState.IDLE) }
     var errorMessage    by remember { mutableStateOf("") }
     var showComparison  by remember { mutableStateOf(false) }
-    var sensitivity     by remember { mutableStateOf(160f) }
+    var saveFeedback    by remember { mutableStateOf<Boolean?>(null) } // null = hidden, true = success, false = error
 
     // User's drawing strokes mapped to intrinsic image coordinates
     // We maintain a list of Paths representing strokes on the real 1:1 image.
     val drawnPaths = remember { mutableStateListOf<Path>() }
+
+    if (sourceBitmap != null) {
+        androidx.activity.compose.BackHandler {
+            sourceBitmap   = null
+            resultBitmap   = null
+            state          = ProcessingState.IDLE
+            showComparison = false
+            drawnPaths.clear()
+            errorMessage   = ""
+            saveFeedback   = null
+        }
+    }
 
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let {
@@ -129,46 +168,82 @@ fun GeminiEraserApp() {
             return
         }
 
-        state = ProcessingState.PROCESSING
-        coroutine.launch {
-            runCatching {
-                // 1. Convert drawing Paths into a precise Boolean Mask
-                val mask = withContext(Dispatchers.Default) { renderPathsToMask(src.width, src.height, drawnPaths) }
-                // 2. Call FastAPI Backend for Generative Inpainting
-                withContext(Dispatchers.IO) { WatermarkEraser.erase(src, mask, sensitivity.toDouble()) }
-            }.onSuccess { result ->
-                resultBitmap   = result
-                state          = ProcessingState.DONE
-                showComparison = true
-                drawnPaths.clear()
-            }.onFailure { err ->
-                errorMessage = err.message ?: "Unknown error"
-                state        = ProcessingState.ERROR
+        val processImage = {
+            state = ProcessingState.PROCESSING
+            coroutine.launch {
+                runCatching {
+                    // 1. Convert drawing Paths into a precise Boolean Mask
+                    val mask = withContext(Dispatchers.Default) { renderPathsToMask(src.width, src.height, drawnPaths) }
+                    // 2. Call FastAPI Backend for Generative Inpainting
+                    withContext(Dispatchers.IO) { WatermarkEraser.erase(src, mask) }
+                }.onSuccess { result ->
+                    resultBitmap   = result
+                    state          = ProcessingState.DONE
+                    showComparison = true
+                    drawnPaths.clear()
+                }.onFailure { err ->
+                    errorMessage = err.message ?: "Unknown error"
+                    state        = ProcessingState.ERROR
+                }
+            }
+        }
+
+        if (isPremium) {
+            processImage()
+        } else {
+            val activity = context.findActivity()
+            if (activity != null) {
+                adManager.showInterstitial(activity) { processImage() }
+            } else {
+                processImage()
             }
         }
     }
 
     fun onSave() {
         val bmp = resultBitmap ?: return
-        coroutine.launch {
-            val saved = withContext(Dispatchers.IO) { saveBitmapToGallery(context, bmp) }
-            if (saved) Toast.makeText(context, "✅ Saved to Gallery!", Toast.LENGTH_SHORT).show()
-            else       Toast.makeText(context, "❌ Failed to save", Toast.LENGTH_SHORT).show()
+        
+        val saveImage = {
+            coroutine.launch {
+                val saved = withContext(Dispatchers.IO) { saveBitmapToGallery(context, bmp) }
+                saveFeedback = saved
+            }
+        }
+
+        if (isPremium) {
+            saveImage()
+        } else {
+            val activity = context.findActivity()
+            if (activity != null) {
+                var earned = false
+                adManager.showRewarded(activity, onReward = {
+                    earned = true
+                    saveImage()
+                }, onClosed = {
+                    if (!earned) {
+                        Toast.makeText(context, "Watch the full ad to save your image!", Toast.LENGTH_SHORT).show()
+                    }
+                })
+            } else {
+                saveImage() // Fallback if no activity found but shouldn't happen
+            }
         }
     }
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         AmbientBackground()
 
-        Column(
-            modifier = Modifier.fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 12.dp)
-                .navigationBarsPadding(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            AppHeader()
+        Column(Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier.fillMaxWidth().weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .statusBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                AppHeader(isPremium = isPremium, onGoPro = { 
+                    context.findActivity()?.let { billingManager.launchBillingFlow(it) } 
+                })
             Spacer(Modifier.height(16.dp))
 
             // Magic Eraser Image Zone
@@ -179,7 +254,7 @@ fun GeminiEraserApp() {
                 processingState = state,
                 drawnPaths      = drawnPaths,
                 onAddPath       = { drawnPaths.add(it) },
-                onUndo          = { if (drawnPaths.isNotEmpty()) drawnPaths.removeLast() },
+                onUndo          = { if (drawnPaths.isNotEmpty()) drawnPaths.removeAt(drawnPaths.lastIndex) },
                 onPickImage     = ::onPickImage,
                 onToggleView    = { showComparison = it }
             )
@@ -191,19 +266,6 @@ fun GeminiEraserApp() {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     if (state == ProcessingState.IDLE || state == ProcessingState.ERROR) {
                         
-                        Text("Watermark Brightness Threshold", color = Color.Gray, fontSize = 12.sp)
-                        Slider(
-                            value = sensitivity,
-                            onValueChange = { sensitivity = it },
-                            valueRange = 0f..255f,
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color(0xFF06B6D4),
-                                activeTrackColor = Color(0xFF8B5CF6)
-                            ),
-                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 0.dp)
-                        )
-                        Spacer(Modifier.height(8.dp))
-
                         EraseButton(isProcessing = false, onClick = ::onErase)
                         
                         // Error message flag
@@ -231,8 +293,75 @@ fun GeminiEraserApp() {
                 }
             }
 
-            Spacer(Modifier.height(32.dp))
-            if (sourceBitmap == null) HowItWorksSection()
+                Spacer(Modifier.height(32.dp))
+                if (sourceBitmap == null) HowItWorksSection()
+            }
+            
+            // Bottom Banner Ad
+            if (!isPremium) {
+                Box(Modifier.navigationBarsPadding().fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
+                    BannerAdView()
+                }
+            } else {
+                Spacer(Modifier.navigationBarsPadding())
+            }
+        }
+
+        // Persistent flag to prevent text changing during exit animation
+        var displaySuccess by remember { mutableStateOf(true) }
+        LaunchedEffect(saveFeedback) {
+            if (saveFeedback != null) {
+                displaySuccess = saveFeedback == true
+            }
+        }
+
+        // Beautiful Save Feedback Overlay
+        AnimatedVisibility(
+            visible = saveFeedback != null,
+            enter = fadeIn(tween(300)) + scaleIn(tween(300, easing = Easing { android.view.animation.OvershootInterpolator().getInterpolation(it) }), initialScale = 0.8f),
+            exit = fadeOut(tween(300)) + scaleOut(tween(300), targetScale = 0.8f),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+                tonalElevation = 8.dp,
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(if (displaySuccess) Color(0xFF10B981).copy(alpha=0.2f) else Color(0xFFEF4444).copy(alpha=0.2f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            if (displaySuccess) Icons.Default.Check else Icons.Default.Close,
+                            contentDescription = null,
+                            tint = if (displaySuccess) Color(0xFF10B981) else Color(0xFFEF4444),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Text(
+                        if (displaySuccess) "Saved to GeminiEraser" else "Failed to save",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                }
+            }
+        }
+
+        // Auto-dismiss the feedback
+        LaunchedEffect(saveFeedback) {
+            if (saveFeedback != null) {
+                kotlinx.coroutines.delay(2500)
+                saveFeedback = null
+            }
         }
     }
 }
@@ -275,6 +404,7 @@ fun InteractiveImageZone(
                 val displayBmp = if (showComparison && resultBitmap != null) resultBitmap else sourceBitmap
                 
                 var viewSize by remember { mutableStateOf(IntSize.Zero) }
+                var activePath by remember { mutableStateOf<Path?>(null) }
 
                 Canvas(
                     modifier = Modifier
@@ -314,21 +444,36 @@ fun InteractiveImageZone(
                                 return Offset((off.x - offsetX) / scaleX, (off.y - offsetY) / scaleY)
                             }
 
+                            var previousX = 0f
+                            var previousY = 0f
+
                             detectDragGestures(
                                 onDragStart = { offset ->
-                                    currentPath = Path().apply { moveTo(toBmpCoords(offset).x, toBmpCoords(offset).y) }
+                                    val bmpPos = toBmpCoords(offset)
+                                    previousX = bmpPos.x
+                                    previousY = bmpPos.y
+                                    currentPath = Path().apply { moveTo(previousX, previousY) }
+                                    activePath = currentPath
                                 },
-                                onDrag = { change, dragAmount ->
-                                    currentPath?.lineTo(toBmpCoords(change.position).x, toBmpCoords(change.position).y)
-                                    // Hack to force a recompose while dragging - not super optimal but works for a quick path
-                                    val p = currentPath
-                                    if (p != null) {
-                                        // add dummy path to trigger redraw
-                                    }
+                                onDrag = { change, _ ->
+                                    val bmpPos = toBmpCoords(change.position)
+                                    val midX = (previousX + bmpPos.x) / 2f
+                                    val midY = (previousY + bmpPos.y) / 2f
+                                    
+                                    currentPath?.quadraticBezierTo(previousX, previousY, midX, midY)
+                                    
+                                    previousX = bmpPos.x
+                                    previousY = bmpPos.y
+                                    
+                                    // Create a new path wrapping the updated path to trigger Compose recomposition properly
+                                    val livePath = Path().apply { addPath(currentPath!!) }
+                                    activePath = livePath
                                 },
                                 onDragEnd = {
+                                    currentPath?.lineTo(previousX, previousY)
                                     currentPath?.let { onAddPath(it) }
                                     currentPath = null
+                                    activePath = null
                                 }
                             )
                         }
@@ -378,6 +523,9 @@ fun InteractiveImageZone(
                         for (path in drawnPaths) {
                             drawPath(path = path, color = brushPathColor, style = strokeStyle)
                         }
+                        activePath?.let {
+                            drawPath(path = it, color = brushPathColor, style = strokeStyle)
+                        }
                         
                         drawContext.canvas.restore()
                     }
@@ -390,7 +538,7 @@ fun InteractiveImageZone(
                 ) {
                     if (!showComparison && drawnPaths.isNotEmpty() && processingState == ProcessingState.IDLE) {
                         IconButton(onClick = onUndo, modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)) {
-                            Icon(androidx.compose.material.icons.automirrored.filled.Undo, "Undo brush", tint = Color.White)
+                            Icon(Icons.Default.Undo, "Undo brush", tint = Color.White)
                         }
                     } else Spacer(Modifier.width(1.dp))
 
@@ -410,7 +558,21 @@ fun InteractiveImageZone(
                 // Processing Cover
                 if (processingState == ProcessingState.PROCESSING) {
                     Box(Modifier.fillMaxSize().background(Color.Black.copy(0.6f)), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Color(0xFF8B5CF6))
+                        val infiniteTransition = rememberInfiniteTransition(label = "logoSpin")
+                        val rotation by infiniteTransition.animateFloat(
+                            initialValue = 0f,
+                            targetValue = 360f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1200, easing = LinearEasing),
+                                repeatMode = RepeatMode.Restart
+                            ),
+                            label = "rotation"
+                        )
+                        Image(
+                            painter = painterResource(id = R.drawable.logo_icon),
+                            contentDescription = "Processing...",
+                            modifier = Modifier.size(96.dp).rotate(rotation)
+                        )
                     }
                 }
             }
@@ -425,18 +587,18 @@ fun InteractiveImageZone(
 // Creates a pure black-and-white bitmap mapping exactly the drawn paths to the image.
 fun renderPathsToMask(width: Int, height: Int, paths: List<Path>): Bitmap {
     val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-    val canvas = android.graphics.Canvas(bmp)
+    val canvas = AndroidCanvas(bmp)
     
     // Fill background with black
-    canvas.drawColor(android.graphics.Color.BLACK)
+    canvas.drawColor(AndroidColor.BLACK)
 
     // Setup white Android paintbrush
-    val paint = android.graphics.Paint().apply {
-        color = android.graphics.Color.WHITE
-        style = android.graphics.Paint.Style.STROKE
+    val paint = AndroidPaint().apply {
+        color = AndroidColor.WHITE
+        style = AndroidPaint.Style.STROKE
         strokeWidth = 45f // Base brush size, matching the display
-        strokeCap = android.graphics.Paint.Cap.ROUND
-        strokeJoin = android.graphics.Paint.Join.ROUND
+        strokeCap = Cap.ROUND
+        strokeJoin = Join.ROUND
         isAntiAlias = true
     }
 
@@ -451,12 +613,54 @@ fun renderPathsToMask(width: Int, height: Int, paths: List<Path>): Bitmap {
 
 // Below follows UI components similar to original layout
 @Composable
-fun AppHeader() {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        val pulse by rememberInfiniteTransition(label="p").animateFloat(0.85f, 1f, infiniteRepeatable(tween(1800), RepeatMode.Reverse), label="p")
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(72.dp).scale(pulse)) { Text("✦", fontSize = 28.sp) }
-        Text("Magic Eraser Pro", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color.White)
-        Text("Swipe pixel-perfectly to erase", color = MaterialTheme.colorScheme.onSurfaceVariant)
+fun BannerAdView() {
+    AndroidView(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        factory = { context ->
+            AdView(context).apply {
+                setAdSize(AdSize.BANNER)
+                adUnitId = "ca-app-pub-3940256099942544/6300978111" // Test Banner ID
+                loadAd(AdRequest.Builder().build())
+            }
+        }
+    )
+}
+
+@Composable
+fun AppHeader(isPremium: Boolean, onGoPro: () -> Unit) {
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.align(Alignment.TopCenter)) {
+            val pulse by rememberInfiniteTransition(label = "p").animateFloat(
+                initialValue = 0.9f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+                label = "pulse"
+            )
+            Image(
+                painter = painterResource(id = R.drawable.logo_icon),
+                contentDescription = "Gemini Eraser Logo",
+                modifier = Modifier.size(100.dp).scale(pulse)
+            )
+            Text("Gemini Eraser", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color.White)
+            Text("Swipe pixel-perfectly to erase", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        if (!isPremium) {
+            Button(
+                onClick = onGoPro,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F1E88), contentColor = Color.White),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                modifier = Modifier.align(Alignment.TopEnd).height(38.dp)
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.logo_icon),
+                    contentDescription = null,
+                    modifier = Modifier.size(26.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("PRO", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+            }
+        }
     }
 }
 
@@ -485,10 +689,23 @@ fun decodeBitmapFromUri(context: Context, uri: Uri): Bitmap? {
 }
 
 fun saveBitmapToGallery(context: Context, bitmap: Bitmap): Boolean {
-    val cv = ContentValues().apply { put(MediaStore.Images.Media.DISPLAY_NAME, "Eraser_${System.currentTimeMillis()}.png"); put(MediaStore.Images.Media.MIME_TYPE, "image/png") }
+    val cv = ContentValues().apply { 
+        put(MediaStore.Images.Media.DISPLAY_NAME, "Eraser_${System.currentTimeMillis()}.png")
+        put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            put(MediaStore.Images.Media.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/GeminiEraser")
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+    }
     return runCatching {
         val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv) ?: return false
         context.contentResolver.openOutputStream(uri)?.use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            cv.clear()
+            cv.put(MediaStore.Images.Media.IS_PENDING, 0)
+            context.contentResolver.update(uri, cv, null, null)
+        }
         true
     }.getOrDefault(false)
 }

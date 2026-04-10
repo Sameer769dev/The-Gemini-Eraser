@@ -70,6 +70,12 @@ dependencies {
     // OkHttp for interacting with Python backend
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     
+    // Google Mobile Ads
+    implementation("com.google.android.gms:play-services-ads:23.0.0")
+
+    // Google Play Billing
+    implementation("com.android.billingclient:billing-ktx:6.2.0")
+    
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
