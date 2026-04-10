@@ -117,6 +117,13 @@ enum class ProcessingState { IDLE, PROCESSING, DONE, ERROR }
 
 enum class SelectionMode { AI_TAP, MANUAL_BRUSH }
 
+/**
+ * A single user brush stroke.
+ * [isFilled] = true when the user drew a closed loop (lasso) →
+ * the interior is flood-filled on the mask, just like Photoshop's lasso tool.
+ */
+data class DrawnStroke(val path: Path, val isFilled: Boolean)
+
 // ────────────────────────────────────────────────────────────────────────────
 // ROOT APP
 // ────────────────────────────────────────────────────────────────────────────
@@ -137,7 +144,7 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
 
     // User's drawing strokes mapped to intrinsic image coordinates
     // We maintain a list of Paths representing strokes on the real 1:1 image.
-    val drawnPaths = remember { mutableStateListOf<Path>() }
+    val drawnPaths = remember { mutableStateListOf<DrawnStroke>() }
     var selectionMode       by remember { mutableStateOf(SelectionMode.AI_TAP) }
     var segmentedMaskBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isSegmenting        by remember { mutableStateOf(false) }
@@ -258,7 +265,7 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                     val mask = when (selectionMode) {
                         SelectionMode.AI_TAP -> segmentedMaskBitmap!!
                         SelectionMode.MANUAL_BRUSH -> withContext(Dispatchers.Default) {
-                            renderPathsToMask(src.width, src.height, drawnPaths)
+                            renderPathsToMask(src.width, src.height, drawnPaths.toList())
                         }
                     }
                     // 2. Call FastAPI Backend for Generative Inpainting
@@ -365,7 +372,7 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                         selectionMode   = selectionMode,
                         segmentedMask   = segmentedMaskBitmap,
                         isSegmenting    = isSegmenting,
-                        onAddPath       = { drawnPaths.add(it) },
+                        onAddPath       = { path, filled -> drawnPaths.add(DrawnStroke(path, filled)) },
                         onUndo          = { if (drawnPaths.isNotEmpty()) drawnPaths.removeAt(drawnPaths.lastIndex) },
                         onPickImage     = ::onPickImage,
                         onToggleView    = { showComparison = it },
@@ -410,7 +417,7 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                     selectionMode       = selectionMode,
                     segmentedMask       = segmentedMaskBitmap,
                     isSegmenting        = isSegmenting,
-                    onAddPath           = { drawnPaths.add(it) },
+                    onAddPath           = { path, filled -> drawnPaths.add(DrawnStroke(path, filled)) },
                     onUndo              = {
                         when (selectionMode) {
                             SelectionMode.AI_TAP       -> segmentedMaskBitmap = null
@@ -590,11 +597,11 @@ fun InteractiveImageZone(
     resultBitmap: Bitmap?,
     showComparison: Boolean,
     processingState: ProcessingState,
-    drawnPaths: List<Path>,
+    drawnPaths: List<DrawnStroke>,
     selectionMode: SelectionMode,
     segmentedMask: Bitmap?,
     isSegmenting: Boolean,
-    onAddPath: (Path) -> Unit,
+    onAddPath: (Path, Boolean) -> Unit,
     onUndo: () -> Unit,
     onPickImage: () -> Unit,
     onToggleView: (Boolean) -> Unit,
@@ -626,6 +633,7 @@ fun InteractiveImageZone(
                 
                 var viewSize by remember { mutableStateOf(IntSize.Zero) }
                 var activePath by remember { mutableStateOf<Path?>(null) }
+                var activePathIsFilled by remember { mutableStateOf(false) }
 
                 // ── Zoom / pan state ─────────────────────────────────────────
                 var zoomScale by remember { mutableStateOf(1f) }
@@ -706,23 +714,24 @@ fun InteractiveImageZone(
                             }
 
                             awaitEachGesture {
-                                // Wait for first finger down
                                 val firstDown = awaitFirstDown(requireUnconsumed = false)
 
-                                // Check if next event adds a second pointer quickly (pinch intent)
-                                // Use a short window to detect multi-touch start
                                 var isMultiTouch = false
                                 var brushPath: Path? = null
                                 var prevX = 0f
                                 var prevY = 0f
+                                // Track start position for lasso-fill detection
+                                var startBmpX = 0f
+                                var startBmpY = 0f
                                 val base = computeBase()
 
                                 if (selectionMode == SelectionMode.MANUAL_BRUSH && !isSegmenting) {
-                                    // Start a brush path immediately on first down
                                     val bmp = toBmp(firstDown.position, base)
                                     prevX = bmp.x; prevY = bmp.y
+                                    startBmpX = prevX; startBmpY = prevY
                                     brushPath = Path().apply { moveTo(prevX, prevY) }
                                     activePath = brushPath
+                                    activePathIsFilled = false
                                 }
 
                                 do {
@@ -754,7 +763,11 @@ fun InteractiveImageZone(
                                                     val midY = (prevY + bmp.y) / 2f
                                                     brushPath!!.quadraticBezierTo(prevX, prevY, midX, midY)
                                                     prevX = bmp.x; prevY = bmp.y
-                                                    // Trigger recompose by swapping reference
+                                                    // Live preview: hint closure if near start
+                                                    val dx = prevX - startBmpX
+                                                    val dy = prevY - startBmpY
+                                                    val nearStart = (dx * dx + dy * dy) < (80f * 80f)
+                                                    activePathIsFilled = nearStart
                                                     activePath = Path().apply { addPath(brushPath!!) }
                                                 }
                                                 change.consume()
@@ -768,9 +781,20 @@ fun InteractiveImageZone(
                                 if (!isMultiTouch && !isSegmenting) {
                                     when (selectionMode) {
                                         SelectionMode.MANUAL_BRUSH -> {
-                                            brushPath?.lineTo(prevX, prevY)
-                                            brushPath?.let { onAddPath(it) }
+                                            if (brushPath != null) {
+                                                val dx = prevX - startBmpX
+                                                val dy = prevY - startBmpY
+                                                // Lasso threshold: end within 60 bitmap-px of start
+                                                val isClosed = (dx * dx + dy * dy) < (60f * 60f)
+                                                if (isClosed) {
+                                                    brushPath!!.close() // snap & fill interior
+                                                } else {
+                                                    brushPath!!.lineTo(prevX, prevY)
+                                                }
+                                                onAddPath(brushPath!!, isClosed)
+                                            }
                                             activePath = null
+                                            activePathIsFilled = false
                                         }
                                         SelectionMode.AI_TAP -> {
                                             // Lift after single-finger press = AI tap
@@ -834,12 +858,39 @@ fun InteractiveImageZone(
                         drawContext.canvas.save()
                         drawContext.canvas.translate(renderX, renderY)
                         drawContext.canvas.scale(strokeScale, strokeScale)
-                        val brushPathColor = Color(0xFF06B6D4).copy(alpha = 0.5f)
+
+                        val cyanFill   = Color(0xFF06B6D4).copy(alpha = 0.35f)
+                        val cyanStroke = Color(0xFF06B6D4).copy(alpha = 0.6f)
+                        val fillStyle  = androidx.compose.ui.graphics.drawscope.Fill
                         val strokeStyle = androidx.compose.ui.graphics.drawscope.Stroke(
                             width = 45f, cap = StrokeCap.Round, join = StrokeJoin.Round
                         )
-                        for (path in drawnPaths) { drawPath(path = path, color = brushPathColor, style = strokeStyle) }
-                        activePath?.let { drawPath(path = it, color = brushPathColor, style = strokeStyle) }
+                        val thinStroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = 3f, cap = StrokeCap.Round, join = StrokeJoin.Round
+                        )
+
+                        // Committed strokes
+                        for (stroke in drawnPaths) {
+                            if (stroke.isFilled) {
+                                // Filled lasso: semi-transparent interior + thin outline
+                                drawPath(path = stroke.path, color = cyanFill, style = fillStyle)
+                                drawPath(path = stroke.path, color = cyanStroke, style = thinStroke)
+                            } else {
+                                drawPath(path = stroke.path, color = cyanStroke, style = strokeStyle)
+                            }
+                        }
+
+                        // Live active path preview
+                        activePath?.let { ap ->
+                            if (activePathIsFilled) {
+                                // Closing soon: show filled preview with dashed border hint
+                                drawPath(path = ap, color = cyanFill, style = fillStyle)
+                                drawPath(path = ap, color = Color(0xFFFFD700).copy(alpha = 0.9f), style = thinStroke)
+                            } else {
+                                drawPath(path = ap, color = cyanStroke, style = strokeStyle)
+                            }
+                        }
+
                         drawContext.canvas.restore()
                     }
 
@@ -1014,27 +1065,32 @@ fun InteractiveImageZone(
 // ────────────────────────────────────────────────────────────────────────────
 
 // Creates a pure black-and-white bitmap mapping exactly the drawn paths to the image.
-fun renderPathsToMask(width: Int, height: Int, paths: List<Path>): Bitmap {
+// Filled (lasso) strokes use Fill style; open strokes use Stroke style.
+fun renderPathsToMask(width: Int, height: Int, strokes: List<DrawnStroke>): Bitmap {
     val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = AndroidCanvas(bmp)
-    
-    // Fill background with black
+
+    // Background = black
     canvas.drawColor(AndroidColor.BLACK)
 
-    // Setup white Android paintbrush
-    val paint = AndroidPaint().apply {
+    val strokePaint = AndroidPaint().apply {
         color = AndroidColor.WHITE
         style = AndroidPaint.Style.STROKE
-        strokeWidth = 45f // Base brush size, matching the display
+        strokeWidth = 45f
         strokeCap = Cap.ROUND
         strokeJoin = Join.ROUND
         isAntiAlias = true
     }
+    val fillPaint = AndroidPaint().apply {
+        color = AndroidColor.WHITE
+        style = AndroidPaint.Style.FILL_AND_STROKE  // fill interior + anti-alias border
+        strokeWidth = 8f
+        isAntiAlias = true
+    }
 
-    // Convert Compose Paths to Android Paths and draw them
-    for (composePath in paths) {
-        val androidPath = composePath.asAndroidPath()
-        canvas.drawPath(androidPath, paint)
+    for (stroke in strokes) {
+        val androidPath = stroke.path.asAndroidPath()
+        canvas.drawPath(androidPath, if (stroke.isFilled) fillPaint else strokePaint)
     }
 
     return bmp
