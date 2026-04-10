@@ -25,10 +25,10 @@ object WatermarkEraser {
     // For local emulator testing:  http://10.0.2.2:8000/inpaint
     // For production (HF Spaces):  https://YOUR-USERNAME-gemini-eraser-ai.hf.space/inpaint
     // Set IS_PRODUCTION = true and fill in your HF URL before releasing the app!
-    private const val IS_PRODUCTION = false
+    private const val IS_PRODUCTION = true
     private const val LOCAL_URL      = "http://10.0.2.2:8000/inpaint"
-    private const val PRODUCTION_URL = "https://YOUR-USERNAME-gemini-eraser-ai.hf.space/inpaint"
-    private const val BACKEND_URL = if (IS_PRODUCTION) PRODUCTION_URL else LOCAL_URL
+    private const val PRODUCTION_URL = "https://samir87699-gemini-eraser-ai.hf.space/inpaint"
+    private val BACKEND_URL = if (IS_PRODUCTION) PRODUCTION_URL else LOCAL_URL
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
@@ -38,10 +38,9 @@ object WatermarkEraser {
 
     /**
      * @param source      The original image Bitmap.
-     * @param maskBitmap  A black-and-white (or transparent) Bitmap exactly the same size.
-     * @param sensitivity The brightness threshold (0-255) for isolating the watermark. Included for compatibility, but the backend handles mask processing nicely.
+     * @param maskBitmap  A black-and-white mask mapping the watermark area.
      */
-    fun erase(source: Bitmap, maskBitmap: Bitmap, sensitivity: Double = 150.0): Bitmap {
+    fun erase(source: Bitmap, maskBitmap: Bitmap): Bitmap {
         if (source.width != maskBitmap.width || source.height != maskBitmap.height) {
             throw IllegalArgumentException("Mask dimensions MUST perfectly match the source image.")
         }

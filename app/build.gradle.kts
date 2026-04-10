@@ -56,14 +56,16 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
 
-    // OpenCV via Maven Central - no manual SDK download required
-    implementation("org.opencv:opencv:4.10.0")
 
     // Coil for premium image loading in Compose
     implementation("io.coil-kt:coil-compose:2.6.0")
 
     // Coroutines for off-thread processing
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
+
+    // Foundation pager for onboarding swipe screens
+    implementation("androidx.compose.foundation:foundation:1.7.8")
+
     
     // OkHttp for interacting with Python backend
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
