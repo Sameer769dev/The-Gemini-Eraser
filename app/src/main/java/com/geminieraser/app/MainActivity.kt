@@ -18,6 +18,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -109,6 +110,8 @@ fun GeminiEraserTheme(content: @Composable () -> Unit) {
 
 enum class ProcessingState { IDLE, PROCESSING, DONE, ERROR }
 
+enum class SelectionMode { AI_TAP, MANUAL_BRUSH }
+
 // ────────────────────────────────────────────────────────────────────────────
 // ROOT APP
 // ────────────────────────────────────────────────────────────────────────────
@@ -130,26 +133,40 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
     // User's drawing strokes mapped to intrinsic image coordinates
     // We maintain a list of Paths representing strokes on the real 1:1 image.
     val drawnPaths = remember { mutableStateListOf<Path>() }
+    var selectionMode       by remember { mutableStateOf(SelectionMode.AI_TAP) }
+    var segmentedMaskBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var isSegmenting        by remember { mutableStateOf(false) }
+
+    // Initialise MediaPipe segmenter lazily when a source image is loaded (runs off main thread)
+    LaunchedEffect(sourceBitmap) {
+        if (sourceBitmap != null) {
+            withContext(Dispatchers.Default) { SegmentationHelper.initialize(context) }
+        }
+    }
 
     if (sourceBitmap != null) {
         androidx.activity.compose.BackHandler {
-            sourceBitmap   = null
-            resultBitmap   = null
-            state          = ProcessingState.IDLE
-            showComparison = false
+            sourceBitmap        = null
+            resultBitmap        = null
+            state               = ProcessingState.IDLE
+            showComparison      = false
             drawnPaths.clear()
-            errorMessage   = ""
-            saveFeedback   = null
+            errorMessage        = ""
+            saveFeedback        = null
+            segmentedMaskBitmap = null
+            isSegmenting        = false
         }
     }
 
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let {
-            sourceBitmap   = decodeBitmapFromUri(context, it)
-            resultBitmap   = null
-            state          = ProcessingState.IDLE
-            showComparison = false
+            sourceBitmap        = decodeBitmapFromUri(context, it)
+            resultBitmap        = null
+            state               = ProcessingState.IDLE
+            showComparison      = false
             drawnPaths.clear()
+            segmentedMaskBitmap = null
+            isSegmenting        = false
         }
     }
 
@@ -163,6 +180,22 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
             pickImage.launch("image/*")
         } else {
             requestPermission.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+    }
+
+    fun onAiTap(normX: Float, normY: Float) {
+        val src = sourceBitmap ?: return
+        isSegmenting = true
+        segmentedMaskBitmap = null
+        coroutine.launch {
+            val mask = withContext(Dispatchers.Default) {
+                SegmentationHelper.segmentFromPoint(src, normX, normY)
+            }
+            segmentedMaskBitmap = mask
+            isSegmenting = false
+            if (mask == null) {
+                Toast.makeText(context, "Couldn't detect an object — try tapping its center", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -204,24 +237,38 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
 
     fun onErase() {
         val src = sourceBitmap ?: return
-        if (drawnPaths.isEmpty()) {
-            Toast.makeText(context, "Please swipe over an object first!", Toast.LENGTH_SHORT).show()
-            return
+
+        // Validate that we have something to erase in the current mode
+        when (selectionMode) {
+            SelectionMode.AI_TAP -> if (segmentedMaskBitmap == null) {
+                Toast.makeText(context, "Tap an object in the image first!", Toast.LENGTH_SHORT).show()
+                return
+            }
+            SelectionMode.MANUAL_BRUSH -> if (drawnPaths.isEmpty()) {
+                Toast.makeText(context, "Draw over an object first!", Toast.LENGTH_SHORT).show()
+                return
+            }
         }
 
         val processImage = {
             state = ProcessingState.PROCESSING
             coroutine.launch {
                 runCatching {
-                    // 1. Convert drawing Paths into a precise Boolean Mask
-                    val mask = withContext(Dispatchers.Default) { renderPathsToMask(src.width, src.height, drawnPaths) }
+                    // 1. Build mask — from AI segmentation OR manual brush strokes
+                    val mask = when (selectionMode) {
+                        SelectionMode.AI_TAP -> segmentedMaskBitmap!!
+                        SelectionMode.MANUAL_BRUSH -> withContext(Dispatchers.Default) {
+                            renderPathsToMask(src.width, src.height, drawnPaths)
+                        }
+                    }
                     // 2. Call FastAPI Backend for Generative Inpainting
                     withContext(Dispatchers.IO) { ObjectEraser.erase(src, mask, isPremium) }
                 }.onSuccess { result ->
-                    resultBitmap   = result
-                    state          = ProcessingState.DONE
-                    showComparison = true
+                    resultBitmap        = result
+                    state               = ProcessingState.DONE
+                    showComparison      = true
                     drawnPaths.clear()
+                    segmentedMaskBitmap = null
                 }.onFailure { err ->
                     errorMessage = err.message ?: "Unknown error"
                     state        = ProcessingState.ERROR
@@ -315,10 +362,15 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                         showComparison  = showComparison,
                         processingState = state,
                         drawnPaths      = drawnPaths,
+                        selectionMode   = selectionMode,
+                        segmentedMask   = segmentedMaskBitmap,
+                        isSegmenting    = isSegmenting,
                         onAddPath       = { drawnPaths.add(it) },
                         onUndo          = { if (drawnPaths.isNotEmpty()) drawnPaths.removeAt(drawnPaths.lastIndex) },
                         onPickImage     = ::onPickImage,
-                        onToggleView    = { showComparison = it }
+                        onToggleView    = { showComparison = it },
+                        onAiTap         = ::onAiTap,
+                        onModeChange    = { selectionMode = it }
                     )
                     Spacer(Modifier.height(32.dp))
                     HowItWorksSection()
@@ -350,16 +402,32 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
 
                 // Image zone expands to fill all remaining space
                 InteractiveImageZone(
-                    sourceBitmap    = sourceBitmap,
-                    resultBitmap    = resultBitmap,
-                    showComparison  = showComparison,
-                    processingState = state,
-                    drawnPaths      = drawnPaths,
-                    onAddPath       = { drawnPaths.add(it) },
-                    onUndo          = { if (drawnPaths.isNotEmpty()) drawnPaths.removeAt(drawnPaths.lastIndex) },
-                    onPickImage     = ::onPickImage,
-                    onToggleView    = { showComparison = it },
-                    modifier        = Modifier
+                    sourceBitmap        = sourceBitmap,
+                    resultBitmap        = resultBitmap,
+                    showComparison      = showComparison,
+                    processingState     = state,
+                    drawnPaths          = drawnPaths,
+                    selectionMode       = selectionMode,
+                    segmentedMask       = segmentedMaskBitmap,
+                    isSegmenting        = isSegmenting,
+                    onAddPath           = { drawnPaths.add(it) },
+                    onUndo              = {
+                        when (selectionMode) {
+                            SelectionMode.AI_TAP       -> segmentedMaskBitmap = null
+                            SelectionMode.MANUAL_BRUSH -> if (drawnPaths.isNotEmpty()) drawnPaths.removeAt(drawnPaths.lastIndex)
+                        }
+                    },
+                    onPickImage         = ::onPickImage,
+                    onToggleView        = { showComparison = it },
+                    onAiTap             = ::onAiTap,
+                    onModeChange        = { mode ->
+                        selectionMode = mode
+                        when (mode) {
+                            SelectionMode.AI_TAP       -> drawnPaths.clear()
+                            SelectionMode.MANUAL_BRUSH -> { segmentedMaskBitmap = null; isSegmenting = false }
+                        }
+                    },
+                    modifier            = Modifier
                         .fillMaxWidth()
                         .weight(1f)
                         .padding(horizontal = 16.dp)
@@ -523,10 +591,15 @@ fun InteractiveImageZone(
     showComparison: Boolean,
     processingState: ProcessingState,
     drawnPaths: List<Path>,
+    selectionMode: SelectionMode,
+    segmentedMask: Bitmap?,
+    isSegmenting: Boolean,
     onAddPath: (Path) -> Unit,
     onUndo: () -> Unit,
     onPickImage: () -> Unit,
     onToggleView: (Boolean) -> Unit,
+    onAiTap: (Float, Float) -> Unit,
+    onModeChange: (SelectionMode) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val defaultHeight = if (sourceBitmap != null) 420.dp else 240.dp
@@ -554,76 +627,89 @@ fun InteractiveImageZone(
                 var viewSize by remember { mutableStateOf(IntSize.Zero) }
                 var activePath by remember { mutableStateOf<Path?>(null) }
 
+                // Derive a tinted cyan overlay from the AI segmentation mask (white=object, black=bg)
+                val maskOverlay: Bitmap? = remember(segmentedMask) {
+                    segmentedMask?.let { mask ->
+                        val w = mask.width; val h = mask.height
+                        val pixels = IntArray(w * h)
+                        mask.getPixels(pixels, 0, w, 0, 0, w, h)
+                        for (i in pixels.indices) {
+                            val r = (pixels[i] shr 16) and 0xFF
+                            // Foreground white pixels → semi-transparent cyan; background → fully transparent
+                            pixels[i] = if (r >= 128) AndroidColor.argb(160, 6, 182, 212) else AndroidColor.TRANSPARENT
+                        }
+                        val overlay = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                        overlay.setPixels(pixels, 0, w, 0, 0, w, h)
+                        overlay
+                    }
+                }
+
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
                         .onSizeChanged { viewSize = it }
-                        .pointerInput(showComparison) {
-                            // Only allow drawing on the Original, not Result
+                        .pointerInput(showComparison, selectionMode) {
                             if (showComparison) return@pointerInput
 
-                            var currentPath: Path? = null
-                            var scaleX = 1f
-                            var scaleY = 1f
-                            var offsetX = 0f
-                            var offsetY = 0f
+                            // Compute scale to map screen coords → bitmap coords
+                            var scaleX = 1f; var scaleY = 1f
+                            var offsetX = 0f; var offsetY = 0f
 
-                            // Compute scale so we can map touch gestures linearly back to original coordinates
                             if (viewSize.width > 0 && viewSize.height > 0) {
                                 val vAspect = viewSize.width.toFloat() / viewSize.height
                                 val bAspect = sourceBitmap.width.toFloat() / sourceBitmap.height
                                 if (vAspect > bAspect) {
-                                    // Height constrained
                                     scaleY = viewSize.height.toFloat() / sourceBitmap.height
                                     scaleX = scaleY
-                                    val renderedW = sourceBitmap.width * scaleX
-                                    offsetX = (viewSize.width - renderedW) / 2f
+                                    offsetX = (viewSize.width - sourceBitmap.width * scaleX) / 2f
                                 } else {
-                                    // Width constrained
                                     scaleX = viewSize.width.toFloat() / sourceBitmap.width
                                     scaleY = scaleX
-                                    val renderedH = sourceBitmap.height * scaleY
-                                    offsetY = (viewSize.height - renderedH) / 2f
+                                    offsetY = (viewSize.height - sourceBitmap.height * scaleY) / 2f
                                 }
                             }
 
-                            // Inverse map func from screen (x,y) -> bitmap (x,y)
-                            fun toBmpCoords(off: Offset): Offset {
-                                return Offset((off.x - offsetX) / scaleX, (off.y - offsetY) / scaleY)
-                            }
+                            fun toBmpCoords(off: Offset) =
+                                Offset((off.x - offsetX) / scaleX, (off.y - offsetY) / scaleY)
 
-                            var previousX = 0f
-                            var previousY = 0f
-
-                            detectDragGestures(
-                                onDragStart = { offset ->
-                                    val bmpPos = toBmpCoords(offset)
-                                    previousX = bmpPos.x
-                                    previousY = bmpPos.y
-                                    currentPath = Path().apply { moveTo(previousX, previousY) }
-                                    activePath = currentPath
-                                },
-                                onDrag = { change, _ ->
-                                    val bmpPos = toBmpCoords(change.position)
-                                    val midX = (previousX + bmpPos.x) / 2f
-                                    val midY = (previousY + bmpPos.y) / 2f
-                                    
-                                    currentPath?.quadraticBezierTo(previousX, previousY, midX, midY)
-                                    
-                                    previousX = bmpPos.x
-                                    previousY = bmpPos.y
-                                    
-                                    // Create a new path wrapping the updated path to trigger Compose recomposition properly
-                                    val livePath = Path().apply { addPath(currentPath!!) }
-                                    activePath = livePath
-                                },
-                                onDragEnd = {
-                                    currentPath?.lineTo(previousX, previousY)
-                                    currentPath?.let { onAddPath(it) }
-                                    currentPath = null
-                                    activePath = null
+                            when (selectionMode) {
+                                SelectionMode.AI_TAP -> {
+                                    // Single tap → run on-device MediaPipe segmentation
+                                    detectTapGestures { offset ->
+                                        val bmp = toBmpCoords(offset)
+                                        val normX = (bmp.x / sourceBitmap.width).coerceIn(0f, 1f)
+                                        val normY = (bmp.y / sourceBitmap.height).coerceIn(0f, 1f)
+                                        onAiTap(normX, normY)
+                                    }
                                 }
-                            )
+                                SelectionMode.MANUAL_BRUSH -> {
+                                    // Drag gesture → freehand brush strokes
+                                    var currentPath: Path? = null
+                                    var previousX = 0f; var previousY = 0f
+
+                                    detectDragGestures(
+                                        onDragStart = { offset ->
+                                            val bmpPos = toBmpCoords(offset)
+                                            previousX = bmpPos.x; previousY = bmpPos.y
+                                            currentPath = Path().apply { moveTo(previousX, previousY) }
+                                            activePath = currentPath
+                                        },
+                                        onDrag = { change, _ ->
+                                            val bmpPos = toBmpCoords(change.position)
+                                            val midX = (previousX + bmpPos.x) / 2f
+                                            val midY = (previousY + bmpPos.y) / 2f
+                                            currentPath?.quadraticBezierTo(previousX, previousY, midX, midY)
+                                            previousX = bmpPos.x; previousY = bmpPos.y
+                                            activePath = Path().apply { addPath(currentPath!!) }
+                                        },
+                                        onDragEnd = {
+                                            currentPath?.lineTo(previousX, previousY)
+                                            currentPath?.let { onAddPath(it) }
+                                            currentPath = null; activePath = null
+                                        }
+                                    )
+                                }
+                            }
                         }
                 ) {
                     val sWidth = size.width
@@ -652,54 +738,142 @@ fun InteractiveImageZone(
                         dstSize = IntSize(renderW.toInt(), renderH.toInt())
                     )
 
-                    // 2. Draw the strokes OVER the image if we are viewing the original
-                    if (!showComparison) {
+                    // 2. Draw strokes in Manual Brush mode
+                    if (!showComparison && selectionMode == SelectionMode.MANUAL_BRUSH) {
                         val strokeScale = renderW / sourceBitmap.width.toFloat()
-                        
-                        // We translate the canvas to the image's top-left so paths align
                         drawContext.canvas.save()
                         drawContext.canvas.translate(renderX, renderY)
                         drawContext.canvas.scale(strokeScale, strokeScale)
-
-                        // Highlight strokes with neon cyan logic
                         val brushPathColor = Color(0xFF06B6D4).copy(alpha = 0.5f)
                         val strokeStyle = androidx.compose.ui.graphics.drawscope.Stroke(
-                            width = 45f,
-                            cap = StrokeCap.Round,
-                            join = StrokeJoin.Round
+                            width = 45f, cap = StrokeCap.Round, join = StrokeJoin.Round
                         )
-                        for (path in drawnPaths) {
-                            drawPath(path = path, color = brushPathColor, style = strokeStyle)
-                        }
-                        activePath?.let {
-                            drawPath(path = it, color = brushPathColor, style = strokeStyle)
-                        }
-                        
+                        for (path in drawnPaths) { drawPath(path = path, color = brushPathColor, style = strokeStyle) }
+                        activePath?.let { drawPath(path = it, color = brushPathColor, style = strokeStyle) }
                         drawContext.canvas.restore()
+                    }
+
+                    // 3. Draw AI segmentation cyan mask overlay
+                    if (!showComparison && maskOverlay != null && selectionMode == SelectionMode.AI_TAP) {
+                        drawImage(
+                            image = maskOverlay.asImageBitmap(),
+                            dstOffset = IntOffset(renderX.toInt(), renderY.toInt()),
+                            dstSize = IntSize(renderW.toInt(), renderH.toInt())
+                        )
                     }
                 }
 
-                // Header overlays (Undo, Toggle)
+                // Header overlays: [Undo]  [✦ AI | ✏ Brush]  [Result/Original]
                 Row(
                     modifier = Modifier.align(Alignment.TopCenter).padding(12.dp).fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (!showComparison && drawnPaths.isNotEmpty() && processingState == ProcessingState.IDLE) {
-                        IconButton(onClick = onUndo, modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)) {
-                            Icon(Icons.Default.Undo, "Undo brush", tint = Color.White)
+                    // Left: Undo (context-sensitive for both modes)
+                    val canUndo = !showComparison && processingState == ProcessingState.IDLE &&
+                        when (selectionMode) {
+                            SelectionMode.AI_TAP       -> segmentedMask != null
+                            SelectionMode.MANUAL_BRUSH -> drawnPaths.isNotEmpty()
                         }
-                    } else Spacer(Modifier.width(1.dp))
+                    if (canUndo) {
+                        IconButton(
+                            onClick = onUndo,
+                            modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)
+                        ) { Icon(Icons.Default.Undo, "Undo", tint = Color.White) }
+                    } else {
+                        Spacer(Modifier.size(48.dp))
+                    }
 
+                    // Centre: AI / Brush mode toggle pill (hidden while viewing result)
+                    if (!showComparison && processingState == ProcessingState.IDLE) {
+                        Surface(shape = RoundedCornerShape(20.dp), color = Color.Black.copy(0.65f)) {
+                            Row(modifier = Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                // AI Tap tab
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            if (selectionMode == SelectionMode.AI_TAP) Color(0xFF06B6D4) else Color.Transparent,
+                                            RoundedCornerShape(16.dp)
+                                        )
+                                        .clickable { onModeChange(SelectionMode.AI_TAP) }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "✦ AI",
+                                        color = if (selectionMode == SelectionMode.AI_TAP) Color.Black else Color.White.copy(0.7f),
+                                        fontSize = 12.sp, fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                // Manual Brush tab
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            if (selectionMode == SelectionMode.MANUAL_BRUSH) Color(0xFF8B5CF6) else Color.Transparent,
+                                            RoundedCornerShape(16.dp)
+                                        )
+                                        .clickable { onModeChange(SelectionMode.MANUAL_BRUSH) }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "✏ Brush",
+                                        color = Color.White.copy(if (selectionMode == SelectionMode.MANUAL_BRUSH) 1f else 0.7f),
+                                        fontSize = 12.sp, fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Spacer(Modifier.size(1.dp))
+                    }
+
+                    // Right: Result / Original toggle
                     if (resultBitmap != null) {
-                        Surface(
-                            shape = CircleShape, color = Color.Black.copy(0.7f), border = BorderStroke(1.dp, Color(0xFF8B5CF6))
-                        ) {
+                        Surface(shape = CircleShape, color = Color.Black.copy(0.7f), border = BorderStroke(1.dp, Color(0xFF8B5CF6))) {
                             Text(
                                 if (showComparison) "Result" else "Original",
-                                color = Color.White, modifier = Modifier.clickable { onToggleView(!showComparison) }.padding(horizontal = 14.dp, vertical = 8.dp),
+                                color = Color.White,
+                                modifier = Modifier.clickable { onToggleView(!showComparison) }.padding(horizontal = 14.dp, vertical = 8.dp),
                                 fontSize = 13.sp, fontWeight = FontWeight.SemiBold
                             )
                         }
+                    } else {
+                        Spacer(Modifier.size(1.dp))
+                    }
+                }
+
+                // AI segmenting in-progress indicator
+                if (isSegmenting) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .background(Color.Black.copy(0.55f), RoundedCornerShape(16.dp))
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color(0xFF06B6D4), strokeWidth = 2.dp)
+                            Text("Selecting object…", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+
+                // Tap hint nudge (AI mode only, before first selection)
+                if (!showComparison && selectionMode == SelectionMode.AI_TAP &&
+                    segmentedMask == null && !isSegmenting && processingState == ProcessingState.IDLE
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 16.dp)
+                            .background(Color.Black.copy(0.55f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            "👆 Tap the object you want to remove",
+                            color = Color.White.copy(0.9f), fontSize = 13.sp, fontWeight = FontWeight.Medium
+                        )
                     }
                 }
 

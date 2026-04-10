@@ -70,6 +70,9 @@ dependencies {
     // OkHttp for interacting with Python backend
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     
+    // MediaPipe Interactive Segmenter — free, on-device AI segmentation (no API key needed)
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
+
     // Google Mobile Ads
     implementation("com.google.android.gms:play-services-ads:23.0.0")
 
