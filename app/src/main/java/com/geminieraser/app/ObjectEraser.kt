@@ -26,9 +26,12 @@ object ObjectEraser {
     // For production (HF Spaces):  https://YOUR-USERNAME-gemini-eraser-ai.hf.space/inpaint
     // Set IS_PRODUCTION = true and fill in your HF URL before releasing the app!
     private const val IS_PRODUCTION = true
-    private const val LOCAL_URL      = "http://10.0.2.2:8000/inpaint"
-    private const val PRODUCTION_URL = "https://samir87699-gemini-eraser-ai.hf.space/inpaint"
-    private val BACKEND_URL = if (IS_PRODUCTION) PRODUCTION_URL else LOCAL_URL
+    private const val LOCAL_BASE      = "http://10.0.2.2:8000"
+    private const val PRODUCTION_BASE = "https://samir87699-gemini-eraser-ai.hf.space"
+    private val BASE_URL = if (IS_PRODUCTION) PRODUCTION_BASE else LOCAL_BASE
+
+    private val INPAINT_URL = "$BASE_URL/inpaint"
+    private val SEGMENT_URL = "$BASE_URL/segment"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
@@ -91,7 +94,7 @@ object ObjectEraser {
             .build()
             
         val request = Request.Builder()
-            .url(BACKEND_URL)
+            .url(INPAINT_URL)
             .post(requestBody)
             .build()
             
@@ -114,5 +117,69 @@ object ObjectEraser {
         }
         
         return source
+    }
+
+    /**
+     * @param source The original image Bitmap.
+     * @param normX  Normalized [0-1] horizontal tap coordinate.
+     * @param normY  Normalized [0-1] vertical tap coordinate.
+     */
+    fun segmentFromCloud(source: Bitmap, normX: Float, normY: Float, isPremium: Boolean = false): Bitmap? {
+        Log.d(TAG, "Starting Generative Segmentation... (Premium: $isPremium)")
+
+        // Max resolution cap for server compute bounds
+        val maxRes = if (isPremium) Int.MAX_VALUE else 1024
+        var finalSource = source
+
+        if (!isPremium && (source.width > maxRes || source.height > maxRes)) {
+            val ratio = kotlin.math.min(maxRes.toFloat() / source.width, maxRes.toFloat() / source.height)
+            val newWidth = kotlin.math.round(source.width * ratio).toInt()
+            val newHeight = kotlin.math.round(source.height * ratio).toInt()
+            finalSource = Bitmap.createScaledBitmap(source, newWidth, newHeight, true)
+        }
+
+        val sourceStream = ByteArrayOutputStream()
+        if (isPremium) {
+            finalSource.compress(Bitmap.CompressFormat.PNG, 100, sourceStream)
+        } else {
+            finalSource.compress(Bitmap.CompressFormat.JPEG, 85, sourceStream)
+        }
+        val sourceBytes = sourceStream.toByteArray()
+        val sourceMime = if (isPremium) "image/png" else "image/jpeg"
+        val sourceFileName = if (isPremium) "source.png" else "source.jpg"
+
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("image", sourceFileName, sourceBytes.toRequestBody(sourceMime.toMediaTypeOrNull()))
+            .addFormDataPart("normX", normX.toString())
+            .addFormDataPart("normY", normY.toString())
+            .build()
+            
+        val request = Request.Builder()
+            .url(SEGMENT_URL)
+            .post(requestBody)
+            .build()
+            
+        try {
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                Log.e(TAG, "API Segment Error: ${response.code} ${response.message}")
+                return null
+            }
+            
+            val responseBytes = response.body?.bytes()
+            if (responseBytes != null) {
+                Log.d(TAG, "Generative Segmentation successful.")
+                val mask = BitmapFactory.decodeByteArray(responseBytes, 0, responseBytes.size)
+                
+                // Scale back to original dimension mathematically
+                return if (mask.width != source.width || mask.height != source.height) {
+                    Bitmap.createScaledBitmap(mask, source.width, source.height, true)
+                } else mask
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception during Generative Segmenting Request", e)
+        }
+        return null
     }
 }

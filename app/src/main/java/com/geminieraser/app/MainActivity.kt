@@ -188,8 +188,8 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
         isSegmenting = true
         segmentedMaskBitmap = null
         coroutine.launch {
-            val mask = withContext(Dispatchers.Default) {
-                SegmentationHelper.segmentFromPoint(src, normX, normY)
+            val mask = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                ObjectEraser.segmentFromCloud(src, normX, normY, isPremium)
             }
             segmentedMaskBitmap = mask
             isSegmenting = false

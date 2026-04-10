@@ -4,8 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
 import android.util.Log
+import com.google.mediapipe.framework.image.ByteBufferExtractor
 import com.google.mediapipe.framework.image.BitmapImageBuilder
-import com.google.mediapipe.framework.image.BitmapExtractor
 import com.google.mediapipe.tasks.components.containers.NormalizedKeypoint
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.interactivesegmenter.InteractiveSegmenter
@@ -48,13 +48,13 @@ object SegmentationHelper {
 
             val options = InteractiveSegmenter.InteractiveSegmenterOptions.builder()
                 .setBaseOptions(baseOptions)
-                .setOutputCategoryMask(true)
-                .setOutputConfidenceMasks(false)
+                .setOutputCategoryMask(false)
+                .setOutputConfidenceMasks(true)
                 .build()
 
             segmenter = InteractiveSegmenter.createFromOptions(context, options)
             Log.d(TAG, "MediaPipe InteractiveSegmenter initialised.")
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Failed to initialise segmenter: ${e.message}", e)
             segmenter = null
         }
@@ -86,14 +86,17 @@ object SegmentationHelper {
 
             val result: ImageSegmenterResult = seg.segment(mpImage, roi)
 
-            // categoryMask() returns Optional<MPImage>
-            val maskOpt = result.categoryMask()
-            if (!maskOpt.isPresent) {
-                Log.w(TAG, "No category mask returned.")
+            // confidenceMasks() returns Optional<List<MPImage>>
+            val maskOpt = result.confidenceMasks()
+            if (!maskOpt.isPresent || maskOpt.get().isEmpty()) {
+                Log.w(TAG, "No confidence masks returned.")
                 return null
             }
 
-            maskBitmapFrom(source.width, source.height, maskOpt.get())
+            // In MediaPipe interactive segmenter, index 0 is typically background, index 1 is the selected foreground object
+            val foregroundMask = if (maskOpt.get().size > 1) maskOpt.get()[1] else maskOpt.get()[0]
+
+            maskBitmapFrom(source.width, source.height, foregroundMask)
         } catch (e: Exception) {
             Log.e(TAG, "Segmentation error: ${e.message}", e)
             null
@@ -109,27 +112,26 @@ object SegmentationHelper {
         height: Int,
         mask: com.google.mediapipe.framework.image.MPImage
     ): Bitmap {
-        // BitmapExtractor is the correct API to pull ARGB_8888 from an MPImage
-        val maskBmp = BitmapExtractor.extract(mask)
+        // Extract the underlying FloatBuffer from the MPImage using ByteBuffer translation
+        val floatBuffer = com.google.mediapipe.framework.image.ByteBufferExtractor.extract(mask).asFloatBuffer()
+        
+        val maskWidth = mask.width
+        val maskHeight = mask.height
+        val pixels = IntArray(maskWidth * maskHeight)
 
-        val scaled = if (maskBmp.width != width || maskBmp.height != height) {
-            Bitmap.createScaledBitmap(maskBmp, width, height, true)
-        } else {
-            maskBmp
+        // Confidence float map: we threshold > 0.5 for a "smart" solid binary mask 
+        for (i in 0 until maskWidth * maskHeight) {
+            val confidence = floatBuffer.get(i)
+            pixels[i] = if (confidence > 0.5f) AndroidColor.WHITE else AndroidColor.BLACK
         }
 
-        val pixels = IntArray(width * height)
-        scaled.getPixels(pixels, 0, width, 0, 0, width, height)
-
-        // MediaPipe category mask: category 1 = foreground, encoded in the red channel
-        for (i in pixels.indices) {
-            val r = (pixels[i] shr 16) and 0xFF
-            pixels[i] = if (r >= 1) AndroidColor.WHITE else AndroidColor.BLACK
+        val maskBmp = Bitmap.createBitmap(pixels, maskWidth, maskHeight, Bitmap.Config.ARGB_8888)
+        
+        // Scale to match original source dimension if MediaPipe shrunk the mask internally
+        if (maskBmp.width != width || maskBmp.height != height) {
+            return Bitmap.createScaledBitmap(maskBmp, width, height, true)
         }
-
-        val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        out.setPixels(pixels, 0, width, 0, 0, width, height)
-        return out
+        return maskBmp
     }
 
     /** Release resources when the user leaves the editor. */
