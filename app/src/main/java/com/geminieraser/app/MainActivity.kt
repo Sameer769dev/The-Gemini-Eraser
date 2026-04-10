@@ -17,8 +17,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.forEachGesture
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -622,6 +627,30 @@ fun InteractiveImageZone(
                 var viewSize by remember { mutableStateOf(IntSize.Zero) }
                 var activePath by remember { mutableStateOf<Path?>(null) }
 
+                // ── Zoom / pan state ─────────────────────────────────────────
+                var zoomScale by remember { mutableStateOf(1f) }
+                var panOffset by remember { mutableStateOf(Offset.Zero) }
+
+                // Clamp pan so the image doesn't fly off-screen
+                fun clampPan(rawPan: Offset, scale: Float): Offset {
+                    if (viewSize == IntSize.Zero || sourceBitmap == null) return rawPan
+                    val vAspect = viewSize.width.toFloat() / viewSize.height
+                    val bAspect = sourceBitmap.width.toFloat() / sourceBitmap.height
+                    val (imgW, imgH) = if (vAspect > bAspect)
+                        Pair(viewSize.height * bAspect * scale, viewSize.height.toFloat() * scale)
+                    else
+                        Pair(viewSize.width.toFloat() * scale, viewSize.width / bAspect * scale)
+                    val maxX = ((imgW - viewSize.width) / 2f).coerceAtLeast(0f)
+                    val maxY = ((imgH - viewSize.height) / 2f).coerceAtLeast(0f)
+                    return Offset(rawPan.x.coerceIn(-maxX, maxX), rawPan.y.coerceIn(-maxY, maxY))
+                }
+
+                // Reset zoom/pan when image is swapped
+                LaunchedEffect(sourceBitmap) {
+                    zoomScale = 1f
+                    panOffset = Offset.Zero
+                }
+
                 // Derive a tinted cyan overlay from the AI segmentation mask (white=object, black=bg)
                 val maskOverlay: Bitmap? = remember(segmentedMask) {
                     segmentedMask?.let { mask ->
@@ -643,34 +672,64 @@ fun InteractiveImageZone(
                     modifier = Modifier
                         .fillMaxSize()
                         .onSizeChanged { viewSize = it }
-                        .pointerInput(showComparison, selectionMode, processingState, isSegmenting) {
+                        // ── Layer 1: pinch-to-zoom + pan (always active) ───────────────
+                        .pointerInput(showComparison) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val zoom = event.calculateZoom()
+                                    val pan  = event.calculatePan()
+                                    if (zoom != 1f || pan != Offset.Zero) {
+                                        val newScale = (zoomScale * zoom).coerceIn(1f, 5f)
+                                        val newPan   = clampPan(panOffset + pan * zoomScale, newScale)
+                                        zoomScale = newScale
+                                        panOffset = newPan
+                                    }
+                                } while (event.changes.any { it.pressed })
+                            }
+                        }
+                        // ── Layer 2: drawing / tapping (blocked while segmenting/erasing)
+                        .pointerInput(showComparison, selectionMode, processingState, isSegmenting, zoomScale, panOffset) {
                             if (showComparison || processingState == ProcessingState.PROCESSING || isSegmenting) return@pointerInput
 
-                            // Compute scale to map screen coords → bitmap coords
-                            var scaleX = 1f; var scaleY = 1f
-                            var offsetX = 0f; var offsetY = 0f
+                            // Compute fit-inside geometry for the image at zoom=1
+                            var baseScaleX = 1f; var baseScaleY = 1f
+                            var baseOffsetX = 0f; var baseOffsetY = 0f
 
                             if (viewSize.width > 0 && viewSize.height > 0) {
                                 val vAspect = viewSize.width.toFloat() / viewSize.height
                                 val bAspect = sourceBitmap.width.toFloat() / sourceBitmap.height
                                 if (vAspect > bAspect) {
-                                    scaleY = viewSize.height.toFloat() / sourceBitmap.height
-                                    scaleX = scaleY
-                                    offsetX = (viewSize.width - sourceBitmap.width * scaleX) / 2f
+                                    baseScaleY = viewSize.height.toFloat() / sourceBitmap.height
+                                    baseScaleX = baseScaleY
+                                    baseOffsetX = (viewSize.width - sourceBitmap.width * baseScaleX) / 2f
                                 } else {
-                                    scaleX = viewSize.width.toFloat() / sourceBitmap.width
-                                    scaleY = scaleX
-                                    offsetY = (viewSize.height - sourceBitmap.height * scaleY) / 2f
+                                    baseScaleX = viewSize.width.toFloat() / sourceBitmap.width
+                                    baseScaleY = baseScaleX
+                                    baseOffsetY = (viewSize.height - sourceBitmap.height * baseScaleY) / 2f
                                 }
                             }
 
-                            fun toBmpCoords(off: Offset) =
-                                Offset((off.x - offsetX) / scaleX, (off.y - offsetY) / scaleY)
+                            // Map a screen-space touch point to bitmap pixel coords,
+                            // accounting for the current zoom and pan.
+                            fun toBmpCoords(screenOff: Offset): Offset {
+                                val cx = viewSize.width / 2f
+                                val cy = viewSize.height / 2f
+                                // Undo pan + zoom to get back to fit-inside canvas coords
+                                val canvasX = (screenOff.x - cx - panOffset.x) / zoomScale + cx
+                                val canvasY = (screenOff.y - cy - panOffset.y) / zoomScale + cy
+                                // Undo fit-inside scale to get bitmap pixel coords
+                                return Offset(
+                                    (canvasX - baseOffsetX) / baseScaleX,
+                                    (canvasY - baseOffsetY) / baseScaleY
+                                )
+                            }
 
                             when (selectionMode) {
                                 SelectionMode.AI_TAP -> {
-                                    // Single tap → run on-device MediaPipe segmentation
                                     detectTapGestures { offset ->
+                                        // Only fire if single-finger tap (zoom used 2 fingers)
                                         val bmp = toBmpCoords(offset)
                                         val normX = (bmp.x / sourceBitmap.width).coerceIn(0f, 1f)
                                         val normY = (bmp.y / sourceBitmap.height).coerceIn(0f, 1f)
@@ -678,7 +737,6 @@ fun InteractiveImageZone(
                                     }
                                 }
                                 SelectionMode.MANUAL_BRUSH -> {
-                                    // Drag gesture → freehand brush strokes
                                     var currentPath: Path? = null
                                     var previousX = 0f; var previousY = 0f
 
@@ -709,24 +767,38 @@ fun InteractiveImageZone(
                 ) {
                     val sWidth = size.width
                     val sHeight = size.height
+                    val cx = sWidth / 2f
+                    val cy = sHeight / 2f
 
-                    // 1. Draw the image
+                    // Base fit-inside geometry (zoom = 1)
                     val bRatio = sourceBitmap.width.toFloat() / sourceBitmap.height
                     val vRatio = sWidth / sHeight
 
-                    var renderW = sWidth
-                    var renderH = sHeight
-                    var renderX = 0f
-                    var renderY = 0f
+                    var baseRenderW = sWidth
+                    var baseRenderH = sHeight
+                    var baseRenderX = 0f
+                    var baseRenderY = 0f
 
                     if (vRatio > bRatio) {
-                        renderW = renderH * bRatio
-                        renderX = (sWidth - renderW) / 2f
+                        baseRenderW = baseRenderH * bRatio
+                        baseRenderX = (sWidth - baseRenderW) / 2f
                     } else {
-                        renderH = renderW / bRatio
-                        renderY = (sHeight - renderH) / 2f
+                        baseRenderH = baseRenderW / bRatio
+                        baseRenderY = (sHeight - baseRenderH) / 2f
                     }
 
+                    // Apply zoom + pan transform around canvas centre
+                    drawContext.canvas.save()
+                    drawContext.canvas.translate(cx + panOffset.x, cy + panOffset.y)
+                    drawContext.canvas.scale(zoomScale, zoomScale)
+                    drawContext.canvas.translate(-cx, -cy)
+
+                    val renderX = baseRenderX
+                    val renderY = baseRenderY
+                    val renderW = baseRenderW
+                    val renderH = baseRenderH
+
+                    // 1. Draw the image
                     drawImage(
                         image = displayBmp.asImageBitmap(),
                         dstOffset = IntOffset(renderX.toInt(), renderY.toInt()),
@@ -756,27 +828,44 @@ fun InteractiveImageZone(
                             dstSize = IntSize(renderW.toInt(), renderH.toInt())
                         )
                     }
-                }
 
-                // Header overlays: [Undo]  [✦ AI | ✏ Brush]  [Result/Original]
+                    drawContext.canvas.restore()
+                } // ← closes Canvas { } lambda
+
+                // Header overlays: [Undo | Change Image]  [✦ AI | ✏ Brush]  [Result/Original]
                 Row(
                     modifier = Modifier.align(Alignment.TopCenter).padding(12.dp).fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Left: Undo (context-sensitive for both modes)
-                    val canUndo = !showComparison && processingState == ProcessingState.IDLE && !isSegmenting &&
-                        when (selectionMode) {
-                            SelectionMode.AI_TAP       -> segmentedMask != null
-                            SelectionMode.MANUAL_BRUSH -> drawnPaths.isNotEmpty()
+                    // Left cluster: Undo + Change Image
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val canUndo = !showComparison && processingState == ProcessingState.IDLE && !isSegmenting &&
+                            when (selectionMode) {
+                                SelectionMode.AI_TAP       -> segmentedMask != null
+                                SelectionMode.MANUAL_BRUSH -> drawnPaths.isNotEmpty()
+                            }
+                        if (canUndo) {
+                            IconButton(
+                                onClick = onUndo,
+                                modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)
+                            ) { Icon(Icons.Default.Undo, "Undo", tint = Color.White) }
+                        } else {
+                            Spacer(Modifier.size(48.dp))
                         }
-                    if (canUndo) {
-                        IconButton(
-                            onClick = onUndo,
-                            modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)
-                        ) { Icon(Icons.Default.Undo, "Undo", tint = Color.White) }
-                    } else {
-                        Spacer(Modifier.size(48.dp))
+
+                        // Change Image button — always visible while not erasing
+                        if (processingState != ProcessingState.PROCESSING) {
+                            IconButton(
+                                onClick = onPickImage,
+                                modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)
+                            ) { Icon(Icons.Default.Image, "Change Image", tint = Color(0xFF8B5CF6)) }
+                        } else {
+                            Spacer(Modifier.size(48.dp))
+                        }
                     }
 
                     // Centre: AI / Brush mode toggle pill (hidden while viewing result)
