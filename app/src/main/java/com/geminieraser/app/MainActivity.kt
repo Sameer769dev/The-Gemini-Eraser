@@ -677,6 +677,14 @@ fun InteractiveImageZone(
                     zoomScale = 1f
                     panOffset = Offset.Zero
                 }
+                // Also reset zoom/pan when the result is revealed
+                // so the user always sees the full result, not a zoomed-in crop
+                LaunchedEffect(showComparison) {
+                    if (showComparison) {
+                        zoomScale = 1f
+                        panOffset = Offset.Zero
+                    }
+                }
 
                 // Derive a tinted cyan overlay from the AI segmentation mask (white=object, black=bg)
                 val maskOverlay: Bitmap? = remember(segmentedMask) {
@@ -706,7 +714,9 @@ fun InteractiveImageZone(
                         // read fresh each event. Having them as keys restarts the coroutine
                         // on every zoom/pan frame, causing the frozen/sluggish feeling.
                         .pointerInput(showComparison, selectionMode, processingState, isSegmenting, sourceBitmap) {
-                            if (showComparison || processingState == ProcessingState.PROCESSING) return@pointerInput
+                            // Block ALL input during active processing (spinner showing)
+                            if (processingState == ProcessingState.PROCESSING) return@pointerInput
+                            // In comparison/result view: allow pinch-to-zoom but block drawing
 
                             // Compute fit-inside geometry (recalculated inside each gesture)
                             fun computeBase(): FloatArray {
@@ -776,7 +786,7 @@ fun InteractiveImageZone(
                                         zoomScale = newScale
                                         panOffset = newPan
                                         event.changes.forEach { it.consume() }
-                                    } else if (activePointers == 1 && !isMultiTouch && !isSegmenting) {
+                                    } else if (activePointers == 1 && !isMultiTouch && !isSegmenting && !showComparison) {
                                         // ── Single finger: draw or tap ──
                                         val change = event.changes.firstOrNull { it.pressed } ?: continue
                                         when (selectionMode) {
