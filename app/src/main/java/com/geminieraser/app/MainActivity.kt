@@ -672,95 +672,118 @@ fun InteractiveImageZone(
                     modifier = Modifier
                         .fillMaxSize()
                         .onSizeChanged { viewSize = it }
-                        // ── Layer 1: pinch-to-zoom + pan (always active) ───────────────
-                        .pointerInput(showComparison) {
+                        // ── Single unified gesture handler ─────────────────────────────
+                        // 1 pointer → brush stroke (MANUAL_BRUSH) or ai tap (AI_TAP)
+                        // 2+ pointers → pinch-to-zoom + pan
+                        .pointerInput(showComparison, selectionMode, processingState, isSegmenting, zoomScale, panOffset, sourceBitmap) {
+                            if (showComparison || processingState == ProcessingState.PROCESSING) return@pointerInput
+
+                            // Compute fit-inside geometry (recalculated inside each gesture)
+                            fun computeBase(): FloatArray {
+                                var scaleX = 1f; var scaleY = 1f; var offX = 0f; var offY = 0f
+                                if (viewSize.width > 0 && viewSize.height > 0 && sourceBitmap != null) {
+                                    val vA = viewSize.width.toFloat() / viewSize.height
+                                    val bA = sourceBitmap.width.toFloat() / sourceBitmap.height
+                                    if (vA > bA) {
+                                        scaleY = viewSize.height.toFloat() / sourceBitmap.height
+                                        scaleX = scaleY
+                                        offX = (viewSize.width - sourceBitmap.width * scaleX) / 2f
+                                    } else {
+                                        scaleX = viewSize.width.toFloat() / sourceBitmap.width
+                                        scaleY = scaleX
+                                        offY = (viewSize.height - sourceBitmap.height * scaleY) / 2f
+                                    }
+                                }
+                                return floatArrayOf(scaleX, scaleY, offX, offY)
+                            }
+
+                            fun toBmp(screen: Offset, base: FloatArray): Offset {
+                                val cx = viewSize.width / 2f
+                                val cy = viewSize.height / 2f
+                                val cx2 = (screen.x - cx - panOffset.x) / zoomScale + cx
+                                val cy2 = (screen.y - cy - panOffset.y) / zoomScale + cy
+                                return Offset((cx2 - base[2]) / base[0], (cy2 - base[3]) / base[1])
+                            }
+
                             awaitEachGesture {
-                                awaitFirstDown(requireUnconsumed = false)
+                                // Wait for first finger down
+                                val firstDown = awaitFirstDown(requireUnconsumed = false)
+
+                                // Check if next event adds a second pointer quickly (pinch intent)
+                                // Use a short window to detect multi-touch start
+                                var isMultiTouch = false
+                                var brushPath: Path? = null
+                                var prevX = 0f
+                                var prevY = 0f
+                                val base = computeBase()
+
+                                if (selectionMode == SelectionMode.MANUAL_BRUSH && !isSegmenting) {
+                                    // Start a brush path immediately on first down
+                                    val bmp = toBmp(firstDown.position, base)
+                                    prevX = bmp.x; prevY = bmp.y
+                                    brushPath = Path().apply { moveTo(prevX, prevY) }
+                                    activePath = brushPath
+                                }
+
                                 do {
                                     val event = awaitPointerEvent()
-                                    val zoom = event.calculateZoom()
-                                    val pan  = event.calculatePan()
-                                    if (zoom != 1f || pan != Offset.Zero) {
+                                    val activePointers = event.changes.count { it.pressed }
+
+                                    if (activePointers >= 2) {
+                                        // ── Pinch / pan: cancel any active brush path ──
+                                        if (brushPath != null) {
+                                            brushPath = null
+                                            activePath = null
+                                        }
+                                        isMultiTouch = true
+                                        val zoom = event.calculateZoom()
+                                        val pan  = event.calculatePan()
                                         val newScale = (zoomScale * zoom).coerceIn(1f, 5f)
                                         val newPan   = clampPan(panOffset + pan * zoomScale, newScale)
                                         zoomScale = newScale
                                         panOffset = newPan
+                                        event.changes.forEach { it.consume() }
+                                    } else if (activePointers == 1 && !isMultiTouch && !isSegmenting) {
+                                        // ── Single finger: draw or tap ──
+                                        val change = event.changes.firstOrNull { it.pressed } ?: continue
+                                        when (selectionMode) {
+                                            SelectionMode.MANUAL_BRUSH -> {
+                                                if (brushPath != null) {
+                                                    val bmp = toBmp(change.position, base)
+                                                    val midX = (prevX + bmp.x) / 2f
+                                                    val midY = (prevY + bmp.y) / 2f
+                                                    brushPath!!.quadraticBezierTo(prevX, prevY, midX, midY)
+                                                    prevX = bmp.x; prevY = bmp.y
+                                                    // Trigger recompose by swapping reference
+                                                    activePath = Path().apply { addPath(brushPath!!) }
+                                                }
+                                                change.consume()
+                                            }
+                                            SelectionMode.AI_TAP -> { /* tap handled on lift */ }
+                                        }
                                     }
                                 } while (event.changes.any { it.pressed })
-                            }
-                        }
-                        // ── Layer 2: drawing / tapping (blocked while segmenting/erasing)
-                        .pointerInput(showComparison, selectionMode, processingState, isSegmenting, zoomScale, panOffset) {
-                            if (showComparison || processingState == ProcessingState.PROCESSING || isSegmenting) return@pointerInput
 
-                            // Compute fit-inside geometry for the image at zoom=1
-                            var baseScaleX = 1f; var baseScaleY = 1f
-                            var baseOffsetX = 0f; var baseOffsetY = 0f
-
-                            if (viewSize.width > 0 && viewSize.height > 0) {
-                                val vAspect = viewSize.width.toFloat() / viewSize.height
-                                val bAspect = sourceBitmap.width.toFloat() / sourceBitmap.height
-                                if (vAspect > bAspect) {
-                                    baseScaleY = viewSize.height.toFloat() / sourceBitmap.height
-                                    baseScaleX = baseScaleY
-                                    baseOffsetX = (viewSize.width - sourceBitmap.width * baseScaleX) / 2f
-                                } else {
-                                    baseScaleX = viewSize.width.toFloat() / sourceBitmap.width
-                                    baseScaleY = baseScaleX
-                                    baseOffsetY = (viewSize.height - sourceBitmap.height * baseScaleY) / 2f
-                                }
-                            }
-
-                            // Map a screen-space touch point to bitmap pixel coords,
-                            // accounting for the current zoom and pan.
-                            fun toBmpCoords(screenOff: Offset): Offset {
-                                val cx = viewSize.width / 2f
-                                val cy = viewSize.height / 2f
-                                // Undo pan + zoom to get back to fit-inside canvas coords
-                                val canvasX = (screenOff.x - cx - panOffset.x) / zoomScale + cx
-                                val canvasY = (screenOff.y - cy - panOffset.y) / zoomScale + cy
-                                // Undo fit-inside scale to get bitmap pixel coords
-                                return Offset(
-                                    (canvasX - baseOffsetX) / baseScaleX,
-                                    (canvasY - baseOffsetY) / baseScaleY
-                                )
-                            }
-
-                            when (selectionMode) {
-                                SelectionMode.AI_TAP -> {
-                                    detectTapGestures { offset ->
-                                        // Only fire if single-finger tap (zoom used 2 fingers)
-                                        val bmp = toBmpCoords(offset)
-                                        val normX = (bmp.x / sourceBitmap.width).coerceIn(0f, 1f)
-                                        val normY = (bmp.y / sourceBitmap.height).coerceIn(0f, 1f)
-                                        onAiTap(normX, normY)
-                                    }
-                                }
-                                SelectionMode.MANUAL_BRUSH -> {
-                                    var currentPath: Path? = null
-                                    var previousX = 0f; var previousY = 0f
-
-                                    detectDragGestures(
-                                        onDragStart = { offset ->
-                                            val bmpPos = toBmpCoords(offset)
-                                            previousX = bmpPos.x; previousY = bmpPos.y
-                                            currentPath = Path().apply { moveTo(previousX, previousY) }
-                                            activePath = currentPath
-                                        },
-                                        onDrag = { change, _ ->
-                                            val bmpPos = toBmpCoords(change.position)
-                                            val midX = (previousX + bmpPos.x) / 2f
-                                            val midY = (previousY + bmpPos.y) / 2f
-                                            currentPath?.quadraticBezierTo(previousX, previousY, midX, midY)
-                                            previousX = bmpPos.x; previousY = bmpPos.y
-                                            activePath = Path().apply { addPath(currentPath!!) }
-                                        },
-                                        onDragEnd = {
-                                            currentPath?.lineTo(previousX, previousY)
-                                            currentPath?.let { onAddPath(it) }
-                                            currentPath = null; activePath = null
+                                // ── Gesture ended ──────────────────────────────────────
+                                if (!isMultiTouch && !isSegmenting) {
+                                    when (selectionMode) {
+                                        SelectionMode.MANUAL_BRUSH -> {
+                                            brushPath?.lineTo(prevX, prevY)
+                                            brushPath?.let { onAddPath(it) }
+                                            activePath = null
                                         }
-                                    )
+                                        SelectionMode.AI_TAP -> {
+                                            // Lift after single-finger press = AI tap
+                                            val liftPos = firstDown.position
+                                            val base2 = computeBase()
+                                            if (sourceBitmap != null) {
+                                                val bmp = toBmp(liftPos, base2)
+                                                val normX = (bmp.x / sourceBitmap.width).coerceIn(0f, 1f)
+                                                val normY = (bmp.y / sourceBitmap.height).coerceIn(0f, 1f)
+                                                onAiTap(normX, normY)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
