@@ -683,7 +683,10 @@ fun InteractiveImageZone(
                         // ── Single unified gesture handler ─────────────────────────────
                         // 1 pointer → brush stroke (MANUAL_BRUSH) or ai tap (AI_TAP)
                         // 2+ pointers → pinch-to-zoom + pan
-                        .pointerInput(showComparison, selectionMode, processingState, isSegmenting, zoomScale, panOffset, sourceBitmap) {
+                        // zoomScale + panOffset intentionally NOT in key — they're snapshot state
+                        // read fresh each event. Having them as keys restarts the coroutine
+                        // on every zoom/pan frame, causing the frozen/sluggish feeling.
+                        .pointerInput(showComparison, selectionMode, processingState, isSegmenting, sourceBitmap) {
                             if (showComparison || processingState == ProcessingState.PROCESSING) return@pointerInput
 
                             // Compute fit-inside geometry (recalculated inside each gesture)
@@ -748,7 +751,9 @@ fun InteractiveImageZone(
                                         val zoom = event.calculateZoom()
                                         val pan  = event.calculatePan()
                                         val newScale = (zoomScale * zoom).coerceIn(1f, 5f)
-                                        val newPan   = clampPan(panOffset + pan * zoomScale, newScale)
+                                        // Pan: raw screen delta (no * zoomScale — that caused sluggish
+                                        // panning because at 3× zoom it tripled the pan displacement)
+                                        val newPan   = clampPan(panOffset + pan, newScale)
                                         zoomScale = newScale
                                         panOffset = newPan
                                         event.changes.forEach { it.consume() }
