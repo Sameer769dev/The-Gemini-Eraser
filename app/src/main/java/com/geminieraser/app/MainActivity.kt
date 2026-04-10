@@ -443,7 +443,7 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                 ) {
                     when {
                         state == ProcessingState.IDLE || state == ProcessingState.ERROR -> {
-                            EraseButton(isProcessing = false, onClick = ::onErase)
+                            EraseButton(isProcessing = isSegmenting, onClick = { if (!isSegmenting) onErase() })
                             if (state == ProcessingState.ERROR) {
                                 Text("Error: $errorMessage", color = Color(0xFFEF4444), fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
                             }
@@ -648,8 +648,8 @@ fun InteractiveImageZone(
                     modifier = Modifier
                         .fillMaxSize()
                         .onSizeChanged { viewSize = it }
-                        .pointerInput(showComparison, selectionMode) {
-                            if (showComparison) return@pointerInput
+                        .pointerInput(showComparison, selectionMode, processingState, isSegmenting) {
+                            if (showComparison || processingState == ProcessingState.PROCESSING || isSegmenting) return@pointerInput
 
                             // Compute scale to map screen coords → bitmap coords
                             var scaleX = 1f; var scaleY = 1f
@@ -770,7 +770,7 @@ fun InteractiveImageZone(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Left: Undo (context-sensitive for both modes)
-                    val canUndo = !showComparison && processingState == ProcessingState.IDLE &&
+                    val canUndo = !showComparison && processingState == ProcessingState.IDLE && !isSegmenting &&
                         when (selectionMode) {
                             SelectionMode.AI_TAP       -> segmentedMask != null
                             SelectionMode.MANUAL_BRUSH -> drawnPaths.isNotEmpty()

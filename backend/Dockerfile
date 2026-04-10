@@ -26,6 +26,9 @@ COPY --chown=appuser:appuser . .
 # on every Hugging Face Space restart without re-downloading.
 RUN python -c "from simple_lama_inpainting import SimpleLama; print('Model download complete:', SimpleLama())"
 
+# Pre-download the FastSAM model weights into the image
+RUN python -c "from ultralytics import FastSAM; FastSAM('FastSAM-s.pt')"
+
 # Switch to non-root user (required by Hugging Face Spaces)
 USER 1000
 

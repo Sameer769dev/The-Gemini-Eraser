@@ -71,7 +71,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     
     // MediaPipe Interactive Segmenter — free, on-device AI segmentation (no API key needed)
-    implementation("com.google.mediapipe:tasks-vision:0.10.14")
+    // implementation("com.google.mediapipe:tasks-vision:0.10.14") (Removed because FastSAM in the cloud replaces it entirely, fixing 16KB alignment)
 
     // Google Mobile Ads
     implementation("com.google.android.gms:play-services-ads:23.0.0")

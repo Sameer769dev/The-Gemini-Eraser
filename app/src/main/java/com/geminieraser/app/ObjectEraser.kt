@@ -127,11 +127,12 @@ object ObjectEraser {
     fun segmentFromCloud(source: Bitmap, normX: Float, normY: Float, isPremium: Boolean = false): Bitmap? {
         Log.d(TAG, "Starting Generative Segmentation... (Premium: $isPremium)")
 
-        // Max resolution cap for server compute bounds
-        val maxRes = if (isPremium) Int.MAX_VALUE else 1024
+        // For segmentation, we ALWAYS cap at 640px for blazing fast network speeds.
+        // It's just edge detection, so high-resolution uploads are completely wasteful!
+        val maxRes = 640
         var finalSource = source
 
-        if (!isPremium && (source.width > maxRes || source.height > maxRes)) {
+        if (source.width > maxRes || source.height > maxRes) {
             val ratio = kotlin.math.min(maxRes.toFloat() / source.width, maxRes.toFloat() / source.height)
             val newWidth = kotlin.math.round(source.width * ratio).toInt()
             val newHeight = kotlin.math.round(source.height * ratio).toInt()
@@ -139,14 +140,12 @@ object ObjectEraser {
         }
 
         val sourceStream = ByteArrayOutputStream()
-        if (isPremium) {
-            finalSource.compress(Bitmap.CompressFormat.PNG, 100, sourceStream)
-        } else {
-            finalSource.compress(Bitmap.CompressFormat.JPEG, 85, sourceStream)
-        }
+        // Aggressively compress JPEG since FastSAM doesn't care about compression artifacts
+        finalSource.compress(Bitmap.CompressFormat.JPEG, 70, sourceStream)
+        
         val sourceBytes = sourceStream.toByteArray()
-        val sourceMime = if (isPremium) "image/png" else "image/jpeg"
-        val sourceFileName = if (isPremium) "source.png" else "source.jpg"
+        val sourceMime = "image/jpeg"
+        val sourceFileName = "source.jpg"
 
         val requestBody = MultipartBody.Builder()
             .setType(MultipartBody.FORM)

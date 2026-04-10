@@ -3,7 +3,7 @@ import io
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
 from PIL import Image
@@ -75,8 +75,8 @@ async def health():
 @app.post("/segment", tags=["Segmentation"])
 async def segment_image(
     image: UploadFile = File(...),
-    normX: float = 0.5,
-    normY: float = 0.5
+    normX: float = Form(0.5),
+    normY: float = Form(0.5)
 ):
     """
     Receives an image and a normalized (0-1) X, Y point.
@@ -97,7 +97,8 @@ async def segment_image(
         logger.info(f"Segmenting point {px}, {py} on {src.size} image...")
         
         # FastSAM magic!
-        results = fastsam_model(src, points=[[px, py]], labels=[1], retina_masks=True)
+        # By removing retina_masks we drastically speed up decoding
+        results = fastsam_model(src, imgsz=640, points=[[px, py]], labels=[1], retina_masks=False)
         
         if not results or results[0].masks is None:
              # Return a fully black mask if nothing is detected
