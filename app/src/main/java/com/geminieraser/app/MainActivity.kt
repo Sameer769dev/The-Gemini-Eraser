@@ -1282,60 +1282,12 @@ fun AppHeader(isPremium: Boolean, compact: Boolean, onGoPro: () -> Unit, modifie
                 )
             }
             if (!isPremium) {
-                // Golden shimmer brush that sweeps right
-                val goldShimmer = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFFD97706),
-                        Color(0xFFF59E0B),
-                        Color(0xFFFFD60A),
-                        Color(0xFFF59E0B),
-                        Color(0xFFD97706)
-                    ),
-                    start = Offset(shimmerOffset - 100f, 0f),
-                    end = Offset(shimmerOffset + 100f, 0f)
+                GoPROButton(
+                    onClick       = onGoPro,
+                    shimmerOffset = shimmerOffset,
+                    glowAlpha     = glowAlpha,
+                    compact       = true
                 )
-                Button(
-                    onClick = onGoPro,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.Transparent, contentColor = Color(0xFF1A0A00)
-                    ),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
-                    modifier = Modifier
-                        .height(36.dp)
-                        .background(brush = goldShimmer, shape = RoundedCornerShape(18.dp))
-                        .drawWithContent {
-                            // Golden glow halo
-                            drawCircle(
-                                brush = Brush.radialGradient(
-                                    colors = listOf(
-                                        Color(0xFFF59E0B).copy(alpha = glowAlpha * 0.7f),
-                                        Color.Transparent
-                                    ),
-                                    center = Offset(size.width / 2f, size.height / 2f),
-                                    radius = size.maxDimension * 1.2f
-                                ),
-                                radius = size.maxDimension * 1.2f
-                            )
-                            drawContent()
-                        },
-                    shape = RoundedCornerShape(18.dp),
-                    elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp)
-                ) {
-                    Icon(
-                        Icons.Default.WorkspacePremium,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp),
-                        tint = Color(0xFF1A0A00)
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "Go PRO",
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 12.sp,
-                        color = Color(0xFF1A0A00),
-                        letterSpacing = 0.5.sp
-                    )
-                }
             }
         }
         return
@@ -1403,62 +1355,16 @@ fun AppHeader(isPremium: Boolean, compact: Boolean, onGoPro: () -> Unit, modifie
             )
         }
 
-        // ── Glowing PRO corner badge (full hero mode) ──────────────────
         if (!isPremium) {
-            val goldShimmer = Brush.linearGradient(
-                colors = listOf(
-                    Color(0xFFD97706),
-                    Color(0xFFF59E0B),
-                    Color(0xFFFFD60A),
-                    Color(0xFFF59E0B),
-                    Color(0xFFD97706)
-                ),
-                start = Offset(shimmerOffset - 120f, 0f),
-                end = Offset(shimmerOffset + 120f, 0f)
-            )
-            Button(
-                onClick = onGoPro,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.Transparent,
-                    contentColor = Color(0xFF1A0A00)
-                ),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                modifier = Modifier
+            GoPROButton(
+                onClick       = onGoPro,
+                shimmerOffset = shimmerOffset,
+                glowAlpha     = glowAlpha,
+                compact       = false,
+                modifier      = Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 4.dp)
-                    .height(42.dp)
-                    .background(brush = goldShimmer, shape = RoundedCornerShape(21.dp))
-                    .drawWithContent {
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    Color(0xFF7C3AED).copy(alpha = glowAlpha * 0.8f),
-                                    Color(0xFF06B6D4).copy(alpha = glowAlpha * 0.3f),
-                                    Color.Transparent
-                                ),
-                                center = Offset(size.width / 2f, size.height / 2f),
-                                radius = size.maxDimension * 1.1f
-                            ),
-                            radius = size.maxDimension * 1.1f
-                        )
-                        drawContent()
-                    },
-                shape = RoundedCornerShape(20.dp),
-                elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp)
-            ) {
-                Image(
-                    painter = painterResource(id = R.drawable.logo_icon),
-                    contentDescription = null,
-                    modifier = Modifier.size(26.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    "PRO",
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 13.sp,
-                    color = Color.White
-                )
-            }
+            )
         }
     }
 }

@@ -86,13 +86,7 @@ fun FullScreenPaywall(
             Spacer(modifier = Modifier.weight(1f))
 
             // Premium Badge
-            Box(
-                modifier = Modifier
-                    .background(Brush.linearGradient(listOf(Color(0xFF7C3AED), Color(0xFF06B6D4))), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Text("GEMINI ERASER PRO", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 2.sp)
-            }
+            ProBadgePill()
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -142,16 +136,19 @@ fun FullScreenPaywall(
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // CTA Button
-            Button(
-                onClick = onSubscribe,
+            // CTA Button — gold gradient
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(60.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
-                shape = RoundedCornerShape(16.dp)
+                    .height(60.dp)
+                    .background(
+                        Brush.linearGradient(listOf(ProGoldDark, ProGoldMid, ProGoldLight)),
+                        RoundedCornerShape(16.dp)
+                    )
+                    .clickable { onSubscribe() },
+                contentAlignment = Alignment.Center
             ) {
-                Text("Continue", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("Continue", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = ProTextDark)
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -177,10 +174,10 @@ fun PaywallFeatureRow(text: String) {
             modifier = Modifier
                 .size(24.dp)
                 .clip(CircleShape)
-                .background(Color(0xFF8B5CF6).copy(alpha = 0.2f)),
+                .background(ProGoldMid.copy(alpha = 0.25f)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF8B5CF6), modifier = Modifier.size(16.dp))
+            Icon(Icons.Default.Check, contentDescription = null, tint = ProGoldDark, modifier = Modifier.size(16.dp))
         }
         Spacer(modifier = Modifier.width(16.dp))
         Text(text, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)

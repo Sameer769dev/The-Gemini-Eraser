@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.*
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.layout.*
 import androidx.compose.ui.text.font.*
@@ -237,5 +238,105 @@ private fun HowItWorksStep(number: String, text: String) {
     }
 }
 
-// ----------------------------------------------------
+// ── Shared Pro Brand Tokens ───────────────────────────────────────────────────
+// Gold palette used consistently across every screen for Pro UI
+val ProGoldDark   = Color(0xFFD97706)
+val ProGoldMid    = Color(0xFFF59E0B)
+val ProGoldLight  = Color(0xFFFFD60A)
+val ProTextDark   = Color(0xFF1A0A00)
 
+/**
+ * The canonical "Go PRO" shimmer button. Use this in every header / toolbar.
+ * [shimmerOffset] should come from an InfiniteTransition animating -300f → 300f.
+ * [glowAlpha]    should come from an InfiniteTransition animating 0.35f → 0.75f.
+ */
+@Composable
+fun GoPROButton(
+    onClick: () -> Unit,
+    shimmerOffset: Float,
+    glowAlpha: Float,
+    compact: Boolean = true,          // true = small pill (headers); false = larger (full hero)
+    modifier: Modifier = Modifier
+) {
+    val height = if (compact) 36.dp else 44.dp
+    val iconSize = if (compact) 15.dp else 18.dp
+    val fontSize = if (compact) 12.sp else 14.sp
+    val hPad    = if (compact) 14.dp else 18.dp
+    val radius  = if (compact) 18.dp else 22.dp
+
+    val goldBrush = Brush.linearGradient(
+        colors = listOf(ProGoldDark, ProGoldMid, ProGoldLight, ProGoldMid, ProGoldDark),
+        start  = Offset(shimmerOffset - 120f, 0f),
+        end    = Offset(shimmerOffset + 120f, 0f)
+    )
+
+    androidx.compose.material3.Button(
+        onClick      = onClick,
+        colors       = androidx.compose.material3.ButtonDefaults.buttonColors(
+            containerColor = Color.Transparent,
+            contentColor   = ProTextDark
+        ),
+        contentPadding = PaddingValues(horizontal = hPad, vertical = 0.dp),
+        modifier = modifier
+            .height(height)
+            .background(brush = goldBrush, shape = RoundedCornerShape(radius))
+            .drawWithContent {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            ProGoldMid.copy(alpha = glowAlpha * 0.7f),
+                            Color.Transparent
+                        ),
+                        center = Offset(size.width / 2f, size.height / 2f),
+                        radius = size.maxDimension * 1.2f
+                    ),
+                    radius = size.maxDimension * 1.2f
+                )
+                drawContent()
+            },
+        shape     = RoundedCornerShape(radius),
+        elevation = androidx.compose.material3.ButtonDefaults.buttonElevation(0.dp, 0.dp)
+    ) {
+        androidx.compose.material3.Icon(
+            Icons.Default.WorkspacePremium,
+            contentDescription = null,
+            modifier = Modifier.size(iconSize),
+            tint     = ProTextDark
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            "Go PRO",
+            fontWeight    = FontWeight.ExtraBold,
+            fontSize      = fontSize,
+            color         = ProTextDark,
+            letterSpacing = 0.5.sp
+        )
+    }
+}
+
+/**
+ * Small gold-outlined "PRO" pill badge. Used in the Paywall header.
+ */
+@Composable
+fun ProBadgePill(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .background(
+                Brush.linearGradient(listOf(ProGoldDark, ProGoldMid, ProGoldLight)),
+                RoundedCornerShape(12.dp)
+            )
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("✦", color = ProTextDark, fontSize = 11.sp, fontWeight = FontWeight.Black)
+            Text(
+                "GEMINI ERASER PRO",
+                color         = ProTextDark,
+                fontWeight    = FontWeight.ExtraBold,
+                fontSize      = 12.sp,
+                letterSpacing = 2.sp
+            )
+        }
+    }
+}
