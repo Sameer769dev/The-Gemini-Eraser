@@ -28,7 +28,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
@@ -121,6 +124,8 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
     var errorMessage    by remember { mutableStateOf("") }
     var showComparison  by remember { mutableStateOf(false) }
     var saveFeedback    by remember { mutableStateOf<Boolean?>(null) } // null = hidden, true = success, false = error
+    var showPaywallScreen by remember { mutableStateOf(false) }
+    var actionCount       by remember { mutableStateOf(0) }
 
     // User's drawing strokes mapped to intrinsic image coordinates
     // We maintain a list of Paths representing strokes on the real 1:1 image.
@@ -161,10 +166,46 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
         }
     }
 
+    fun onReEdit() {
+        val result = resultBitmap ?: return
+
+        val performReEdit = {
+            sourceBitmap = result      // promote result → new source
+            resultBitmap = null
+            drawnPaths.clear()
+            showComparison = false
+            state = ProcessingState.IDLE
+        }
+
+        if (isPremium) {
+            performReEdit()
+        } else {
+            actionCount++
+            if (actionCount % 3 == 0) {
+                showPaywallScreen = true
+            } else {
+                val activity = context.findActivity()
+                if (activity != null) {
+                    var earned = false
+                    adManager.showRewarded(activity, onReward = {
+                        earned = true
+                        performReEdit()
+                    }, onClosed = {
+                        if (!earned) {
+                            Toast.makeText(context, "Watch the full ad to continue editing!", Toast.LENGTH_SHORT).show()
+                        }
+                    })
+                } else {
+                    performReEdit()
+                }
+            }
+        }
+    }
+
     fun onErase() {
         val src = sourceBitmap ?: return
         if (drawnPaths.isEmpty()) {
-            Toast.makeText(context, "Please swipe over the watermark first!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Please swipe over an object first!", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -175,7 +216,7 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                     // 1. Convert drawing Paths into a precise Boolean Mask
                     val mask = withContext(Dispatchers.Default) { renderPathsToMask(src.width, src.height, drawnPaths) }
                     // 2. Call FastAPI Backend for Generative Inpainting
-                    withContext(Dispatchers.IO) { WatermarkEraser.erase(src, mask) }
+                    withContext(Dispatchers.IO) { ObjectEraser.erase(src, mask, isPremium) }
                 }.onSuccess { result ->
                     resultBitmap   = result
                     state          = ProcessingState.DONE
@@ -191,11 +232,21 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
         if (isPremium) {
             processImage()
         } else {
-            val activity = context.findActivity()
-            if (activity != null) {
-                adManager.showInterstitial(activity) { processImage() }
+            actionCount++
+            if (actionCount % 3 == 0) {
+                // Interval Paywall Trigger
+                showPaywallScreen = true
             } else {
-                processImage()
+                val activity = context.findActivity()
+                if (activity != null) {
+                    adManager.showInterstitial(
+                        activity,
+                        onFinish = { processImage() },
+                        onAdFailed = { showPaywallScreen = true } // Ad fallback trigger
+                    )
+                } else {
+                    processImage()
+                }
             }
         }
     }
@@ -213,19 +264,24 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
         if (isPremium) {
             saveImage()
         } else {
-            val activity = context.findActivity()
-            if (activity != null) {
-                var earned = false
-                adManager.showRewarded(activity, onReward = {
-                    earned = true
-                    saveImage()
-                }, onClosed = {
-                    if (!earned) {
-                        Toast.makeText(context, "Watch the full ad to save your image!", Toast.LENGTH_SHORT).show()
-                    }
-                })
+            actionCount++
+            if (actionCount % 3 == 0) {
+                showPaywallScreen = true
             } else {
-                saveImage() // Fallback if no activity found but shouldn't happen
+                val activity = context.findActivity()
+                if (activity != null) {
+                    var earned = false
+                    adManager.showRewarded(activity, onReward = {
+                        earned = true
+                        saveImage()
+                    }, onClosed = {
+                        if (!earned) {
+                            Toast.makeText(context, "Watch the full ad to save your image!", Toast.LENGTH_SHORT).show()
+                        }
+                    })
+                } else {
+                    saveImage() // Fallback if no activity found but shouldn't happen
+                }
             }
         }
     }
@@ -233,77 +289,158 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         AmbientBackground()
 
-        Column(Modifier.fillMaxSize()) {
+        if (sourceBitmap == null) {
+            // ── Empty state: scrollable with full hero ──────────────────────
+            Column(Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .statusBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    AppHeader(
+                        isPremium = isPremium,
+                        compact = false,
+                        onGoPro = {
+                            showPaywallScreen = true
+                        }
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    InteractiveImageZone(
+                        sourceBitmap    = sourceBitmap,
+                        resultBitmap    = resultBitmap,
+                        showComparison  = showComparison,
+                        processingState = state,
+                        drawnPaths      = drawnPaths,
+                        onAddPath       = { drawnPaths.add(it) },
+                        onUndo          = { if (drawnPaths.isNotEmpty()) drawnPaths.removeAt(drawnPaths.lastIndex) },
+                        onPickImage     = ::onPickImage,
+                        onToggleView    = { showComparison = it }
+                    )
+                    Spacer(Modifier.height(32.dp))
+                    HowItWorksSection()
+                    Spacer(Modifier.height(24.dp))
+                }
+                if (!isPremium) {
+                    Box(Modifier.navigationBarsPadding().fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
+                        BannerAdView()
+                    }
+                } else {
+                    Spacer(Modifier.navigationBarsPadding())
+                }
+            }
+        } else {
+            // ── Image loaded: fixed layout, image fills space, no blank gap ─
             Column(
-                modifier = Modifier.fillMaxWidth().weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .statusBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                AppHeader(isPremium = isPremium, onGoPro = { 
-                    context.findActivity()?.let { billingManager.launchBillingFlow(it) } 
-                })
-            Spacer(Modifier.height(16.dp))
+                // Compact header
+                AppHeader(
+                    isPremium = isPremium,
+                    compact = true,
+                    onGoPro = { showPaywallScreen = true },
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                )
 
-            // Magic Eraser Image Zone
-            InteractiveImageZone(
-                sourceBitmap    = sourceBitmap,
-                resultBitmap    = resultBitmap,
-                showComparison  = showComparison,
-                processingState = state,
-                drawnPaths      = drawnPaths,
-                onAddPath       = { drawnPaths.add(it) },
-                onUndo          = { if (drawnPaths.isNotEmpty()) drawnPaths.removeAt(drawnPaths.lastIndex) },
-                onPickImage     = ::onPickImage,
-                onToggleView    = { showComparison = it }
-            )
+                // Image zone expands to fill all remaining space
+                InteractiveImageZone(
+                    sourceBitmap    = sourceBitmap,
+                    resultBitmap    = resultBitmap,
+                    showComparison  = showComparison,
+                    processingState = state,
+                    drawnPaths      = drawnPaths,
+                    onAddPath       = { drawnPaths.add(it) },
+                    onUndo          = { if (drawnPaths.isNotEmpty()) drawnPaths.removeAt(drawnPaths.lastIndex) },
+                    onPickImage     = ::onPickImage,
+                    onToggleView    = { showComparison = it },
+                    modifier        = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 16.dp)
+                )
 
-            Spacer(Modifier.height(24.dp))
-
-            // Controls
-            AnimatedVisibility(visible = sourceBitmap != null) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (state == ProcessingState.IDLE || state == ProcessingState.ERROR) {
-                        
-                        EraseButton(isProcessing = false, onClick = ::onErase)
-                        
-                        // Error message flag
-                        if (state == ProcessingState.ERROR) {
-                            Text("Error: $errorMessage", color = Color(0xFFEF4444), fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp))
-                        }
-                    } else if (state == ProcessingState.PROCESSING) {
-                        EraseButton(isProcessing = true, onClick = {})
-                    } else { // DONE
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            OutlinedButton(onClick = ::onPickImage, modifier = Modifier.weight(1f)) {
-                                Icon(Icons.Default.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
-                                Text("New")
+                // Controls pinned above banner, no blank space
+                Spacer(Modifier.height(10.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    when {
+                        state == ProcessingState.IDLE || state == ProcessingState.ERROR -> {
+                            EraseButton(isProcessing = false, onClick = ::onErase)
+                            if (state == ProcessingState.ERROR) {
+                                Text("Error: $errorMessage", color = Color(0xFFEF4444), fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
                             }
-                            Button(
-                                onClick = ::onSave, 
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                        }
+                        state == ProcessingState.PROCESSING -> {
+                            EraseButton(isProcessing = true, onClick = {})
+                        }
+                        else -> {
+                            // ── Re-edit: full width on its own row ─────────
+                            OutlinedButton(
+                                onClick = ::onReEdit,
+                                modifier = Modifier.fillMaxWidth(),
+                                border = BorderStroke(
+                                    1.5.dp,
+                                    Brush.linearGradient(
+                                        listOf(Color(0xFF7C3AED), Color(0xFF06B6D4))
+                                    )
+                                ),
+                                shape = RoundedCornerShape(14.dp)
                             ) {
-                                Icon(Icons.Default.Download, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
-                                Text("Save")
+                                Icon(
+                                    Icons.Default.Edit,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = Color(0xFF7C3AED)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "Re-edit — draw more to erase again",
+                                    color = Color(0xFF7C3AED),
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            // ── New + Save row ─────────────────────────────
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                OutlinedButton(onClick = ::onPickImage, modifier = Modifier.weight(1f)) {
+                                    Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("New")
+                                }
+                                Button(
+                                    onClick = ::onSave,
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                                ) {
+                                    Icon(Icons.Default.Download, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Save")
+                                }
                             }
                         }
                     }
                 }
-            }
+                Spacer(Modifier.height(10.dp))
 
-                Spacer(Modifier.height(32.dp))
-                if (sourceBitmap == null) HowItWorksSection()
-            }
-            
-            // Bottom Banner Ad
-            if (!isPremium) {
-                Box(Modifier.navigationBarsPadding().fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
-                    BannerAdView()
+                // Bottom Banner Ad
+                if (!isPremium) {
+                    Box(Modifier.navigationBarsPadding().fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
+                        BannerAdView()
+                    }
+                } else {
+                    Spacer(Modifier.navigationBarsPadding())
                 }
-            } else {
-                Spacer(Modifier.navigationBarsPadding())
             }
         }
 
@@ -363,6 +500,16 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                 saveFeedback = null
             }
         }
+
+        if (showPaywallScreen) {
+            FullScreenPaywall(
+                onDismiss = { showPaywallScreen = false },
+                onSubscribe = {
+                    showPaywallScreen = false
+                    context.findActivity()?.let { billingManager.launchBillingFlow(it) }
+                }
+            )
+        }
     }
 }
 
@@ -379,15 +526,16 @@ fun InteractiveImageZone(
     onAddPath: (Path) -> Unit,
     onUndo: () -> Unit,
     onPickImage: () -> Unit,
-    onToggleView: (Boolean) -> Unit
+    onToggleView: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val height = if (sourceBitmap != null) 420.dp else 240.dp
+    val defaultHeight = if (sourceBitmap != null) 420.dp else 240.dp
 
     Surface(
         shape  = RoundedCornerShape(24.dp),
         color  = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
         border = BorderStroke(1.dp, if (sourceBitmap == null) MaterialTheme.colorScheme.outline else Color(0xFF8B5CF6).copy(alpha = 0.5f)),
-        modifier = Modifier.fillMaxWidth().height(height)
+        modifier = if (modifier == Modifier) Modifier.fillMaxWidth().height(defaultHeight) else modifier
     ) {
         if (sourceBitmap == null) {
             // Empty state
@@ -571,7 +719,7 @@ fun InteractiveImageZone(
                         Image(
                             painter = painterResource(id = R.drawable.logo_icon),
                             contentDescription = "Processing...",
-                            modifier = Modifier.size(96.dp).rotate(rotation)
+                            modifier = Modifier.size(196.dp).rotate(rotation)
                         )
                     }
                 }
@@ -627,30 +775,241 @@ fun BannerAdView() {
 }
 
 @Composable
-fun AppHeader(isPremium: Boolean, onGoPro: () -> Unit) {
+fun AppHeader(isPremium: Boolean, compact: Boolean, onGoPro: () -> Unit, modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition(label = "header")
+
+    // Breathing pulse for logo
+    val pulse by infiniteTransition.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(2000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "pulse"
+    )
+
+    // Glow halo alpha throb
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.75f,
+        animationSpec = infiniteRepeatable(tween(2200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "glow"
+    )
+
+    // Shimmer sweep for PRO button
+    val shimmerOffset by infiniteTransition.animateFloat(
+        initialValue = -300f,
+        targetValue = 300f,
+        animationSpec = infiniteRepeatable(tween(2000, easing = LinearEasing), RepeatMode.Restart),
+        label = "shimmer"
+    )
+
+    // ── Compact mode: small horizontal header when image is loaded ───────────
+    if (compact) {
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .drawBehind {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    Color(0xFF7C3AED).copy(alpha = glowAlpha * 0.7f),
+                                    Color.Transparent
+                                ),
+                                center = center,
+                                radius = size.minDimension * 0.7f
+                            ),
+                            radius = size.minDimension * 0.7f
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.logo_icon),
+                    contentDescription = "Gemini Eraser Logo",
+                    modifier = Modifier.size(44.dp).scale(pulse)
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Gemini Eraser",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Text(
+                    "AI-powered object removal",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 11.sp
+                )
+            }
+            if (!isPremium) {
+                // Golden shimmer brush that sweeps right
+                val goldShimmer = Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFFD97706),
+                        Color(0xFFF59E0B),
+                        Color(0xFFFFD60A),
+                        Color(0xFFF59E0B),
+                        Color(0xFFD97706)
+                    ),
+                    start = Offset(shimmerOffset - 100f, 0f),
+                    end = Offset(shimmerOffset + 100f, 0f)
+                )
+                Button(
+                    onClick = onGoPro,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.Transparent, contentColor = Color(0xFF1A0A00)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                    modifier = Modifier
+                        .height(36.dp)
+                        .background(brush = goldShimmer, shape = RoundedCornerShape(18.dp))
+                        .drawWithContent {
+                            // Golden glow halo
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        Color(0xFFF59E0B).copy(alpha = glowAlpha * 0.7f),
+                                        Color.Transparent
+                                    ),
+                                    center = Offset(size.width / 2f, size.height / 2f),
+                                    radius = size.maxDimension * 1.2f
+                                ),
+                                radius = size.maxDimension * 1.2f
+                            )
+                            drawContent()
+                        },
+                    shape = RoundedCornerShape(18.dp),
+                    elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp)
+                ) {
+                    Icon(
+                        Icons.Default.WorkspacePremium,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp),
+                        tint = Color(0xFF1A0A00)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "Go PRO",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 12.sp,
+                        color = Color(0xFF1A0A00),
+                        letterSpacing = 0.5.sp
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    // ── Full hero header (no image loaded) ───────────────────────────────────
     Box(modifier = Modifier.fillMaxWidth()) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.align(Alignment.TopCenter)) {
-            val pulse by rememberInfiniteTransition(label = "p").animateFloat(
-                initialValue = 0.9f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-                label = "pulse"
-            )
+
+        // ── Ambient glow layer behind logo ──────────────────────────────────
+        Box(
+            modifier = Modifier
+                .size(340.dp)
+                .align(Alignment.TopCenter)
+                .drawBehind {
+                    // Outer soft purple halo
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF7C3AED).copy(alpha = glowAlpha * 0.6f),
+                                Color(0xFF4F46E5).copy(alpha = glowAlpha * 0.3f),
+                                Color.Transparent
+                            ),
+                            center = center,
+                            radius = size.minDimension * 0.75f
+                        ),
+                        radius = size.minDimension * 0.75f
+                    )
+                    // Inner bright cyan core
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF06B6D4).copy(alpha = glowAlpha * 0.5f),
+                                Color(0xFFEC4899).copy(alpha = glowAlpha * 0.2f),
+                                Color.Transparent
+                            ),
+                            center = center,
+                            radius = size.minDimension * 0.45f
+                        ),
+                        radius = size.minDimension * 0.45f
+                    )
+                }
+        )
+
+        // ── Logo + text centered ────────────────────────────────────────────
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
             Image(
                 painter = painterResource(id = R.drawable.logo_icon),
                 contentDescription = "Gemini Eraser Logo",
-                modifier = Modifier.size(100.dp).scale(pulse)
+                modifier = Modifier.size(200.dp).scale(pulse)
             )
-            Text("Gemini Eraser", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color.White)
-            Text("Swipe pixel-perfectly to erase", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // Gradient shimmer title
+            Text(
+                "Gemini Eraser",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            Text(
+                "AI-powered object removal",
+                color = Color(0xFF94A3B8),
+                fontSize = 13.sp
+            )
         }
 
+        // ── Glowing PRO corner badge (full hero mode) ──────────────────
         if (!isPremium) {
+            val goldShimmer = Brush.linearGradient(
+                colors = listOf(
+                    Color(0xFFD97706),
+                    Color(0xFFF59E0B),
+                    Color(0xFFFFD60A),
+                    Color(0xFFF59E0B),
+                    Color(0xFFD97706)
+                ),
+                start = Offset(shimmerOffset - 120f, 0f),
+                end = Offset(shimmerOffset + 120f, 0f)
+            )
             Button(
                 onClick = onGoPro,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F1E88), contentColor = Color.White),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                modifier = Modifier.align(Alignment.TopEnd).height(38.dp)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.Transparent,
+                    contentColor = Color(0xFF1A0A00)
+                ),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 4.dp)
+                    .height(42.dp)
+                    .background(brush = goldShimmer, shape = RoundedCornerShape(21.dp))
+                    .drawWithContent {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    Color(0xFF7C3AED).copy(alpha = glowAlpha * 0.8f),
+                                    Color(0xFF06B6D4).copy(alpha = glowAlpha * 0.3f),
+                                    Color.Transparent
+                                ),
+                                center = Offset(size.width / 2f, size.height / 2f),
+                                radius = size.maxDimension * 1.1f
+                            ),
+                            radius = size.maxDimension * 1.1f
+                        )
+                        drawContent()
+                    },
+                shape = RoundedCornerShape(20.dp),
+                elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp)
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.logo_icon),
@@ -658,11 +1017,17 @@ fun AppHeader(isPremium: Boolean, onGoPro: () -> Unit) {
                     modifier = Modifier.size(26.dp)
                 )
                 Spacer(Modifier.width(6.dp))
-                Text("PRO", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                Text(
+                    "PRO",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 13.sp,
+                    color = Color.White
+                )
             }
         }
     }
 }
+
 
 @Composable
 fun EraseButton(isProcessing: Boolean, onClick: () -> Unit) {
@@ -676,12 +1041,12 @@ fun EraseButton(isProcessing: Boolean, onClick: () -> Unit) {
 
 @Composable
 fun HowItWorksSection() {
-    Text("1. Load image\n2. Swipe precisely over the watermark\n3. Tap Erase to remove flawlessly.", color = Color.Gray, textAlign = TextAlign.Center)
+    Text("1. Load image\n2. Swipe precisely over the object or blemish\n3. Tap Erase to remove flawlessly.", color = Color.Gray, textAlign = TextAlign.Center)
 }
 
 @Composable
 fun AmbientBackground() {
-    // Basic gradient bg
+    // App background handled by MaterialTheme
 }
 
 fun decodeBitmapFromUri(context: Context, uri: Uri): Bitmap? {
@@ -708,4 +1073,4 @@ fun saveBitmapToGallery(context: Context, bitmap: Bitmap): Boolean {
         }
         true
     }.getOrDefault(false)
-}
+}

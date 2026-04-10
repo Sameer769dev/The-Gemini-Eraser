@@ -54,7 +54,7 @@ private val SLIDES
     LuxSlide(
         emoji      = "✦",
         title      = "Gemini Eraser",
-        body       = "AI-powered watermark & object removal.\nPremium results in seconds.",
+        body       = "AI-powered object & blemish removal.\nPremium results in seconds.",
         accent     = MaterialTheme.colorScheme.primary,
         auroraShift = Color(0xFF3A1800),
     ),

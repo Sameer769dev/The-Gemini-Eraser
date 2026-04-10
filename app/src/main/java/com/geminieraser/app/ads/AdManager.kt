@@ -54,9 +54,10 @@ class AdManager(private val context: Context) {
     }
 
     /**
-     * Shows Interstitial Ad if loaded. Invokes [onFinish] immediately if not loaded or when closed.
+     * Shows Interstitial Ad if loaded. Invokes [onFinish] when closed.
+     * Invokes [onAdFailed] if the ad is not ready or fails to show.
      */
-    fun showInterstitial(activity: Activity, onFinish: () -> Unit) {
+    fun showInterstitial(activity: Activity, onFinish: () -> Unit, onAdFailed: () -> Unit) {
         if (interstitialAd != null) {
             interstitialAd?.fullScreenContentCallback = object: FullScreenContentCallback() {
                 override fun onAdDismissedFullScreenContent() {
@@ -67,14 +68,14 @@ class AdManager(private val context: Context) {
 
                 override fun onAdFailedToShowFullScreenContent(adError: AdError) {
                     interstitialAd = null
-                    onFinish()
+                    onAdFailed()
                 }
             }
             interstitialAd?.show(activity)
         } else {
-            // Ad not ready, just proceed
+            // Ad not ready, fallback to Paywall!
             loadInterstitialAd()
-            onFinish()
+            onAdFailed()
         }
     }
 
