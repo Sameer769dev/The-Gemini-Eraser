@@ -137,12 +137,7 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
     var segmentedMaskBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isSegmenting        by remember { mutableStateOf(false) }
 
-    // Initialise MediaPipe segmenter lazily when a source image is loaded (runs off main thread)
-    LaunchedEffect(sourceBitmap) {
-        if (sourceBitmap != null) {
-            withContext(Dispatchers.Default) { SegmentationHelper.initialize(context) }
-        }
-    }
+    // (MediaPipe initialization removed since we use FastSAM backend)
 
     if (sourceBitmap != null) {
         androidx.activity.compose.BackHandler {
