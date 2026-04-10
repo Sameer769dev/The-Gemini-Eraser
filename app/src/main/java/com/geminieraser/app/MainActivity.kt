@@ -148,6 +148,8 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
     var selectionMode       by remember { mutableStateOf(SelectionMode.AI_TAP) }
     var segmentedMaskBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isSegmenting        by remember { mutableStateOf(false) }
+    // Holds the running segmentation Job so it can be cancelled mid-flight
+    var segmentationJob: kotlinx.coroutines.Job? = null
 
     // (MediaPipe initialization removed since we use FastSAM backend)
 
@@ -190,18 +192,32 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
         }
     }
 
+    fun onCancelSegmentation() {
+        segmentationJob?.cancel()
+        segmentationJob = null
+        isSegmenting = false
+        segmentedMaskBitmap = null
+    }
+
     fun onAiTap(normX: Float, normY: Float) {
         val src = sourceBitmap ?: return
+        // Cancel any in-flight request (re-tap on a different object)
+        segmentationJob?.cancel()
         isSegmenting = true
         segmentedMaskBitmap = null
-        coroutine.launch {
-            val mask = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                ObjectEraser.segmentFromCloud(src, normX, normY, isPremium)
-            }
-            segmentedMaskBitmap = mask
-            isSegmenting = false
-            if (mask == null) {
-                Toast.makeText(context, "Couldn't detect an object — try tapping its center", Toast.LENGTH_SHORT).show()
+        segmentationJob = coroutine.launch {
+            try {
+                val mask = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    ObjectEraser.segmentFromCloud(src, normX, normY, isPremium)
+                }
+                // This line only runs if not cancelled
+                segmentedMaskBitmap = mask
+                isSegmenting = false
+                if (mask == null) {
+                    Toast.makeText(context, "Couldn't detect an object — try tapping its center", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Cancelled by user — UI was already reset in onCancelSegmentation()
             }
         }
     }
@@ -364,20 +380,21 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                     )
                     Spacer(Modifier.height(16.dp))
                     InteractiveImageZone(
-                        sourceBitmap    = sourceBitmap,
-                        resultBitmap    = resultBitmap,
-                        showComparison  = showComparison,
-                        processingState = state,
-                        drawnPaths      = drawnPaths,
-                        selectionMode   = selectionMode,
-                        segmentedMask   = segmentedMaskBitmap,
-                        isSegmenting    = isSegmenting,
-                        onAddPath       = { path, filled -> drawnPaths.add(DrawnStroke(path, filled)) },
-                        onUndo          = { if (drawnPaths.isNotEmpty()) drawnPaths.removeAt(drawnPaths.lastIndex) },
-                        onPickImage     = ::onPickImage,
-                        onToggleView    = { showComparison = it },
-                        onAiTap         = ::onAiTap,
-                        onModeChange    = { selectionMode = it }
+                        sourceBitmap          = sourceBitmap,
+                        resultBitmap          = resultBitmap,
+                        showComparison        = showComparison,
+                        processingState       = state,
+                        drawnPaths            = drawnPaths,
+                        selectionMode         = selectionMode,
+                        segmentedMask         = segmentedMaskBitmap,
+                        isSegmenting          = isSegmenting,
+                        onAddPath             = { path, filled -> drawnPaths.add(DrawnStroke(path, filled)) },
+                        onUndo                = { if (drawnPaths.isNotEmpty()) drawnPaths.removeAt(drawnPaths.lastIndex) },
+                        onPickImage           = ::onPickImage,
+                        onToggleView          = { showComparison = it },
+                        onAiTap               = ::onAiTap,
+                        onCancelSegmentation  = ::onCancelSegmentation,
+                        onModeChange          = { selectionMode = it }
                     )
                     Spacer(Modifier.height(32.dp))
                     HowItWorksSection()
@@ -409,32 +426,33 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
 
                 // Image zone expands to fill all remaining space
                 InteractiveImageZone(
-                    sourceBitmap        = sourceBitmap,
-                    resultBitmap        = resultBitmap,
-                    showComparison      = showComparison,
-                    processingState     = state,
-                    drawnPaths          = drawnPaths,
-                    selectionMode       = selectionMode,
-                    segmentedMask       = segmentedMaskBitmap,
-                    isSegmenting        = isSegmenting,
-                    onAddPath           = { path, filled -> drawnPaths.add(DrawnStroke(path, filled)) },
-                    onUndo              = {
+                    sourceBitmap          = sourceBitmap,
+                    resultBitmap          = resultBitmap,
+                    showComparison        = showComparison,
+                    processingState       = state,
+                    drawnPaths            = drawnPaths,
+                    selectionMode         = selectionMode,
+                    segmentedMask         = segmentedMaskBitmap,
+                    isSegmenting          = isSegmenting,
+                    onAddPath             = { path, filled -> drawnPaths.add(DrawnStroke(path, filled)) },
+                    onUndo                = {
                         when (selectionMode) {
                             SelectionMode.AI_TAP       -> segmentedMaskBitmap = null
                             SelectionMode.MANUAL_BRUSH -> if (drawnPaths.isNotEmpty()) drawnPaths.removeAt(drawnPaths.lastIndex)
                         }
                     },
-                    onPickImage         = ::onPickImage,
-                    onToggleView        = { showComparison = it },
-                    onAiTap             = ::onAiTap,
-                    onModeChange        = { mode ->
+                    onPickImage           = ::onPickImage,
+                    onToggleView          = { showComparison = it },
+                    onAiTap               = ::onAiTap,
+                    onCancelSegmentation  = ::onCancelSegmentation,
+                    onModeChange          = { mode ->
                         selectionMode = mode
                         when (mode) {
                             SelectionMode.AI_TAP       -> drawnPaths.clear()
                             SelectionMode.MANUAL_BRUSH -> { segmentedMaskBitmap = null; isSegmenting = false }
                         }
                     },
-                    modifier            = Modifier
+                    modifier              = Modifier
                         .fillMaxWidth()
                         .weight(1f)
                         .padding(horizontal = 16.dp)
@@ -606,6 +624,7 @@ fun InteractiveImageZone(
     onPickImage: () -> Unit,
     onToggleView: (Boolean) -> Unit,
     onAiTap: (Float, Float) -> Unit,
+    onCancelSegmentation: () -> Unit,
     onModeChange: (SelectionMode) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -917,27 +936,36 @@ fun InteractiveImageZone(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Left cluster: Undo + Change Image
+                    // Left cluster: Cancel (segmenting) | Undo | Deselect | Change Image
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val canUndo = !showComparison && processingState == ProcessingState.IDLE && !isSegmenting &&
-                            when (selectionMode) {
-                                SelectionMode.AI_TAP       -> segmentedMask != null
-                                SelectionMode.MANUAL_BRUSH -> drawnPaths.isNotEmpty()
-                            }
-                        if (canUndo) {
+                        // While AI is fetching: show Cancel button instead of Undo
+                        if (isSegmenting) {
+                            // Cancel in-progress segmentation
                             IconButton(
-                                onClick = onUndo,
-                                modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)
-                            ) { Icon(Icons.Default.Undo, "Undo", tint = Color.White) }
+                                onClick = onCancelSegmentation,
+                                modifier = Modifier.background(Color(0xFFEF4444).copy(0.85f), CircleShape)
+                            ) { Icon(Icons.Default.Close, "Cancel segmentation", tint = Color.White) }
                         } else {
-                            Spacer(Modifier.size(48.dp))
+                            val canUndo = !showComparison && processingState == ProcessingState.IDLE &&
+                                when (selectionMode) {
+                                    SelectionMode.AI_TAP       -> false // use Deselect chip instead
+                                    SelectionMode.MANUAL_BRUSH -> drawnPaths.isNotEmpty()
+                                }
+                            if (canUndo) {
+                                IconButton(
+                                    onClick = onUndo,
+                                    modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)
+                                ) { Icon(Icons.Default.Undo, "Undo", tint = Color.White) }
+                            } else {
+                                Spacer(Modifier.size(48.dp))
+                            }
                         }
 
                         // Change Image button — always visible while not erasing
-                        if (processingState != ProcessingState.PROCESSING) {
+                        if (processingState != ProcessingState.PROCESSING && !isSegmenting) {
                             IconButton(
                                 onClick = onPickImage,
                                 modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape)
@@ -1006,18 +1034,73 @@ fun InteractiveImageZone(
                     }
                 }
 
-                // AI segmenting in-progress indicator
+                // AI segmenting in-progress indicator + inline Cancel
                 if (isSegmenting) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.Center)
-                            .background(Color.Black.copy(0.55f), RoundedCornerShape(16.dp))
-                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                            .background(Color.Black.copy(0.72f), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color(0xFF06B6D4), strokeWidth = 2.dp)
-                            Text("Selecting object…", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = Color(0xFF06B6D4),
+                                strokeWidth = 2.dp
+                            )
+                            Text(
+                                "Selecting object…",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            // Tap to cancel the in-flight request
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xFFEF4444).copy(0.85f), RoundedCornerShape(12.dp))
+                                    .clickable { onCancelSegmentation() }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("✕ Cancel", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                // Deselect chip — when AI mask is showing and user wants to re-tap
+                if (!isSegmenting && selectionMode == SelectionMode.AI_TAP &&
+                    segmentedMask != null && processingState == ProcessingState.IDLE && !showComparison
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 16.dp)
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Deselect
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xFFEF4444).copy(0.85f), RoundedCornerShape(12.dp))
+                                    .clickable { onUndo() }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("✕ Deselect", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
+                            // Re-tap hint
+                            Box(
+                                modifier = Modifier
+                                    .background(Color.Black.copy(0.6f), RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("👆 Tap a different object", color = Color.White.copy(0.9f), fontSize = 13.sp)
+                            }
                         }
                     }
                 }
