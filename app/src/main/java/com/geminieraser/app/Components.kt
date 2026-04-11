@@ -26,51 +26,20 @@ data class GalleryImage(val id: Int, val uri: Uri)
 // ----------------------------------------------------
 // GLASS LIMIT DIALOG
 // ----------------------------------------------------
+/**
+ * Thin wrapper — forwards to the premium [PremiumLimitDialog] defined in
+ * PaywallScreen.kt so that all existing call-sites continue to compile
+ * without any changes.
+ */
 @Composable
 fun DailyLimitDialog(limit: Int, onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentHeight(),
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 6.dp
-        ) {
-            Column(
-                modifier = Modifier.padding(28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text("✨", fontSize = 38.sp, color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "Daily Limit Reached",
-                    color      = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize   = 18.sp,
-                )
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    "You've used all $limit free erases today.\nCome back tomorrow for $limit more ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â completely free!",
-                    color      = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize   = 14.sp,
-                    textAlign  = TextAlign.Center,
-                    lineHeight = 21.sp,
-                )
-                Spacer(Modifier.height(24.dp))
-                androidx.compose.material3.Button(
-                    onClick = onDismiss,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Text("Got it", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                }
-            }
-        }
-    }
+    PremiumLimitDialog(
+        limit     = limit,
+        onDismiss = onDismiss,
+        onUpgrade = onDismiss   // MainActivity wires the real paywall via its own showPaywall flag
+    )
 }
+
 
 // ----------------------------------------------------
 // GALLERY SCREEN
