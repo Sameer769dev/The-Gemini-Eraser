@@ -264,28 +264,18 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
     fun onErase() {
         val src = sourceBitmap ?: return
 
-        // Validate that we have something to erase in the current mode
-        when (selectionMode) {
-            SelectionMode.AI_TAP -> if (segmentedMaskBitmap == null) {
-                Toast.makeText(context, "Tap an object in the image first!", Toast.LENGTH_SHORT).show()
-                return
-            }
-            SelectionMode.MANUAL_BRUSH -> if (drawnPaths.isEmpty()) {
-                Toast.makeText(context, "Draw over an object first!", Toast.LENGTH_SHORT).show()
-                return
-            }
+        if (segmentedMaskBitmap == null && drawnPaths.isEmpty()) {
+            Toast.makeText(context, "Select an object with AI or draw over it first!", Toast.LENGTH_SHORT).show()
+            return
         }
 
         val processImage = {
             state = ProcessingState.PROCESSING
             coroutine.launch {
                 runCatching {
-                    // 1. Build mask — from AI segmentation OR manual brush strokes
-                    val mask = when (selectionMode) {
-                        SelectionMode.AI_TAP -> segmentedMaskBitmap!!
-                        SelectionMode.MANUAL_BRUSH -> withContext(Dispatchers.Default) {
-                            renderPathsToMask(src.width, src.height, drawnPaths.toList())
-                        }
+                    // 1. Build mask — combining AI segmentation AND manual brush strokes
+                    val mask = withContext(Dispatchers.Default) {
+                        renderPathsToMask(src.width, src.height, drawnPaths.toList(), segmentedMaskBitmap)
                     }
                     // 2. Call FastAPI Backend for Generative Inpainting
                     withContext(Dispatchers.IO) { ObjectEraser.erase(src, mask, isPremium) }
@@ -956,7 +946,7 @@ fun InteractiveImageZone(
                     }
 
                     // 3. Draw AI segmentation cyan mask overlay
-                    if (!showComparison && maskOverlay != null && selectionMode == SelectionMode.AI_TAP) {
+                    if (!showComparison && maskOverlay != null) {
                         drawImage(
                             image = maskOverlay.asImageBitmap(),
                             dstOffset = IntOffset(renderX.toInt(), renderY.toInt()),
@@ -1197,12 +1187,14 @@ fun InteractiveImageZone(
 
 // Creates a pure black-and-white bitmap mapping exactly the drawn paths to the image.
 // Filled (lasso) strokes use Fill style; open strokes use Stroke style.
-fun renderPathsToMask(width: Int, height: Int, strokes: List<DrawnStroke>): Bitmap {
-    val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+fun renderPathsToMask(width: Int, height: Int, strokes: List<DrawnStroke>, baseMask: Bitmap? = null): Bitmap {
+    val bmp = baseMask?.copy(Bitmap.Config.ARGB_8888, true) ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = AndroidCanvas(bmp)
 
-    // Background = black
-    canvas.drawColor(AndroidColor.BLACK)
+    if (baseMask == null) {
+        // Background = black
+        canvas.drawColor(AndroidColor.BLACK)
+    }
 
     val strokePaint = AndroidPaint().apply {
         color = AndroidColor.WHITE
