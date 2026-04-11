@@ -597,9 +597,9 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
         if (showPaywallScreen) {
             FullScreenPaywall(
                 onDismiss = { showPaywallScreen = false },
-                onSubscribe = {
+                onSubscribe = { productId ->
                     showPaywallScreen = false
-                    context.findActivity()?.let { billingManager.launchBillingFlow(it) }
+                    context.findActivity()?.let { billingManager.launchBillingFlow(it, productId) }
                 }
             )
         }

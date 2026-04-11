@@ -48,7 +48,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun FullScreenPaywall(
     onDismiss: () -> Unit,
-    onSubscribe: () -> Unit
+    onSubscribe: (productId: String) -> Unit
 ) {
     var showCloseButton by remember { mutableStateOf(false) }
     var contentVisible  by remember { mutableStateOf(false) }
@@ -373,7 +373,16 @@ fun FullScreenPaywall(
                         ),
                         RoundedCornerShape(18.dp)
                     )
-                    .clickable { onSubscribe() },
+                    .clickable {
+                        // Pass the product ID that matches the user's tier selection:
+                        // Tier 1 = Yearly (best value, 3-day free trial)
+                        // Tier 0 = Weekly
+                        val productId = if (selectedTier == 1)
+                            com.geminieraser.app.billing.BillingManager.SUB_YEARLY
+                        else
+                            com.geminieraser.app.billing.BillingManager.SUB_WEEKLY
+                        onSubscribe(productId)
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 Row(

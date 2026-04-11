@@ -12,12 +12,17 @@ import kotlinx.coroutines.launch
 class BillingManager(private val context: Context) : PurchasesUpdatedListener {
 
     private lateinit var billingClient: BillingClient
-    
+
     private val _isPremium = MutableStateFlow(false)
     val isPremium: StateFlow<Boolean> = _isPremium
 
     companion object {
-        const val PRODUCT_REMOVE_ADS = "sub_remove_ads" // Play Console ID
+        // ── Google Play Console Subscription Product IDs ──────────────────────
+        const val SUB_YEARLY = "pro_yearly_trial"   // Base plan: yearly-base | Offer: 3-day-free-trial
+        const val SUB_WEEKLY = "pro_weekly"          // Base plan: weekly-base
+
+        /** All pro product IDs — used when checking if a user owns any active subscription. */
+        val ALL_PRO_PRODUCTS = listOf(SUB_YEARLY, SUB_WEEKLY)
     }
 
     init {
@@ -43,6 +48,10 @@ class BillingManager(private val context: Context) : PurchasesUpdatedListener {
         })
     }
 
+    /**
+     * Checks if the user already owns any active subscription (Yearly or Weekly).
+     * Updates [isPremium] accordingly.
+     */
     fun checkActiveSubscriptions() {
         if (!billingClient.isReady) return
         billingClient.queryPurchasesAsync(
@@ -51,62 +60,74 @@ class BillingManager(private val context: Context) : PurchasesUpdatedListener {
             if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
                 val hasPremium = purchases.any { purchase ->
                     purchase.purchaseState == Purchase.PurchaseState.PURCHASED &&
-                            purchase.products.contains(PRODUCT_REMOVE_ADS)
+                            purchase.products.any { it in ALL_PRO_PRODUCTS }
                 }
                 _isPremium.value = hasPremium
             }
         }
     }
 
-    fun launchBillingFlow(activity: Activity) {
+    /**
+     * Launches the Google Play billing flow for the given [productId].
+     *
+     * @param activity   The calling [Activity] needed by the Play Billing Library.
+     * @param productId  One of [SUB_YEARLY] or [SUB_WEEKLY].
+     */
+    fun launchBillingFlow(activity: Activity, productId: String = SUB_YEARLY) {
         if (!billingClient.isReady) {
-            CoroutineScope(Dispatchers.Main).launch {
-                android.widget.Toast.makeText(activity, "Billing service not ready yet. Please try again.", android.widget.Toast.LENGTH_SHORT).show()
-            }
+            showToast(activity, "Billing service not ready yet. Please try again.")
             return
         }
-        val queryProductDetailsParams = QueryProductDetailsParams.newBuilder()
+
+        val queryParams = QueryProductDetailsParams.newBuilder()
             .setProductList(
                 listOf(
                     QueryProductDetailsParams.Product.newBuilder()
-                        .setProductId(PRODUCT_REMOVE_ADS)
+                        .setProductId(productId)
                         .setProductType(BillingClient.ProductType.SUBS)
                         .build()
                 )
             ).build()
 
-        billingClient.queryProductDetailsAsync(queryProductDetailsParams) { billingResult, productDetailsList ->
-            if (billingResult.responseCode == BillingClient.BillingResponseCode.OK && productDetailsList.isNotEmpty()) {
+        billingClient.queryProductDetailsAsync(queryParams) { billingResult, productDetailsList ->
+            if (billingResult.responseCode == BillingClient.BillingResponseCode.OK &&
+                productDetailsList.isNotEmpty()
+            ) {
                 val productDetails = productDetailsList[0]
-                val subOfferDetails = productDetails.subscriptionOfferDetails?.get(0)
-                
-                val offerToken = subOfferDetails?.offerToken
-                if (offerToken == null) {
-                    CoroutineScope(Dispatchers.Main).launch {
-                        android.widget.Toast.makeText(activity, "No offers available for this product.", android.widget.Toast.LENGTH_LONG).show()
+
+                // For subscriptions, pick the offer that includes a free trial if available,
+                // otherwise fall back to the first available offer.
+                val offerDetails = productDetails.subscriptionOfferDetails
+                val selectedOffer = offerDetails?.firstOrNull { offer ->
+                    offer.pricingPhases.pricingPhaseList.any { phase ->
+                        phase.priceAmountMicros == 0L // Free trial phase
                     }
+                } ?: offerDetails?.firstOrNull()
+
+                val offerToken = selectedOffer?.offerToken
+                if (offerToken == null) {
+                    showToast(activity, "No offers available for this product.")
                     return@queryProductDetailsAsync
                 }
 
-                val productDetailsParamsList = listOf(
+                val productDetailsParams = listOf(
                     BillingFlowParams.ProductDetailsParams.newBuilder()
                         .setProductDetails(productDetails)
                         .setOfferToken(offerToken)
                         .build()
                 )
                 val billingFlowParams = BillingFlowParams.newBuilder()
-                    .setProductDetailsParamsList(productDetailsParamsList)
+                    .setProductDetailsParamsList(productDetailsParams)
                     .build()
+
                 billingClient.launchBillingFlow(activity, billingFlowParams)
             } else {
-                CoroutineScope(Dispatchers.Main).launch {
-                    val msg = if (productDetailsList.isEmpty()) {
-                        "Subscription product not found. Ensure it is configured in Google Play Console."
-                    } else {
-                        "Billing error: ${billingResult.debugMessage}"
-                    }
-                    android.widget.Toast.makeText(activity, msg, android.widget.Toast.LENGTH_LONG).show()
+                val msg = if (productDetailsList.isEmpty()) {
+                    "Subscription product '$productId' not found. Ensure it is active in Google Play Console."
+                } else {
+                    "Billing error: ${billingResult.debugMessage}"
                 }
+                showToast(activity, msg)
             }
         }
     }
@@ -122,17 +143,23 @@ class BillingManager(private val context: Context) : PurchasesUpdatedListener {
     private fun handlePurchase(purchase: Purchase) {
         if (purchase.purchaseState == Purchase.PurchaseState.PURCHASED) {
             if (!purchase.isAcknowledged) {
-                val acknowledgePurchaseParams = AcknowledgePurchaseParams.newBuilder()
+                val acknowledgeParams = AcknowledgePurchaseParams.newBuilder()
                     .setPurchaseToken(purchase.purchaseToken)
                     .build()
                 CoroutineScope(Dispatchers.IO).launch {
-                    billingClient.acknowledgePurchase(acknowledgePurchaseParams) {
+                    billingClient.acknowledgePurchase(acknowledgeParams) {
                         checkActiveSubscriptions()
                     }
                 }
             } else {
                 checkActiveSubscriptions()
             }
+        }
+    }
+
+    private fun showToast(activity: Activity, message: String) {
+        CoroutineScope(Dispatchers.Main).launch {
+            android.widget.Toast.makeText(activity, message, android.widget.Toast.LENGTH_LONG).show()
         }
     }
 }
