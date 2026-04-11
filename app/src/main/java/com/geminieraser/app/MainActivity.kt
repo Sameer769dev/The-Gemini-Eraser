@@ -146,7 +146,7 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
     // User's drawing strokes mapped to intrinsic image coordinates
     // We maintain a list of Paths representing strokes on the real 1:1 image.
     val drawnPaths = remember { mutableStateListOf<DrawnStroke>() }
-    var selectionMode       by remember { mutableStateOf(SelectionMode.AI_TAP) }
+    var selectionMode       by remember { mutableStateOf(SelectionMode.MANUAL_BRUSH) }
     var segmentedMaskBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isSegmenting        by remember { mutableStateOf(false) }
     // Holds the running segmentation Job so it can be cancelled mid-flight
@@ -195,6 +195,10 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
         val src = sourceBitmap ?: return
         // Cancel any in-flight request (re-tap on a different object)
         segmentationJob?.cancel()
+        if (!isPremium) {
+            showPaywallScreen = true
+            return
+        }
         isSegmenting = true
         segmentedMaskBitmap = null
         segmentationJob = coroutine.launch {
@@ -394,13 +398,24 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                         selectionMode         = selectionMode,
                         segmentedMask         = segmentedMaskBitmap,
                         isSegmenting          = isSegmenting,
+                        isPremium             = isPremium,
                         onAddPath             = { path, filled -> drawnPaths.add(DrawnStroke(path, filled)) },
                         onUndo                = { if (drawnPaths.isNotEmpty()) drawnPaths.removeAt(drawnPaths.lastIndex) },
                         onPickImage           = ::onPickImage,
                         onToggleView          = { showComparison = it },
                         onAiTap               = ::onAiTap,
                         onCancelSegmentation  = ::onCancelSegmentation,
-                        onModeChange          = { selectionMode = it }
+                        onModeChange          = { mode ->
+                            if (mode == SelectionMode.AI_TAP && !isPremium) {
+                                showPaywallScreen = true
+                            } else {
+                                selectionMode = mode
+                                when (mode) {
+                                    SelectionMode.AI_TAP       -> drawnPaths.clear()
+                                    SelectionMode.MANUAL_BRUSH -> { segmentedMaskBitmap = null; isSegmenting = false }
+                                }
+                            }
+                        }
                     )
                     Spacer(Modifier.height(32.dp))
                     HowItWorksSection()
@@ -440,6 +455,7 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                     selectionMode         = selectionMode,
                     segmentedMask         = segmentedMaskBitmap,
                     isSegmenting          = isSegmenting,
+                    isPremium             = isPremium,
                     onAddPath             = { path, filled -> drawnPaths.add(DrawnStroke(path, filled)) },
                     onUndo                = {
                         when (selectionMode) {
@@ -452,10 +468,14 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                     onAiTap               = ::onAiTap,
                     onCancelSegmentation  = ::onCancelSegmentation,
                     onModeChange          = { mode ->
-                        selectionMode = mode
-                        when (mode) {
-                            SelectionMode.AI_TAP       -> drawnPaths.clear()
-                            SelectionMode.MANUAL_BRUSH -> { segmentedMaskBitmap = null; isSegmenting = false }
+                        if (mode == SelectionMode.AI_TAP && !isPremium) {
+                            showPaywallScreen = true
+                        } else {
+                            selectionMode = mode
+                            when (mode) {
+                                SelectionMode.AI_TAP       -> drawnPaths.clear()
+                                SelectionMode.MANUAL_BRUSH -> { segmentedMaskBitmap = null; isSegmenting = false }
+                            }
                         }
                     },
                     modifier              = Modifier
@@ -625,6 +645,7 @@ fun InteractiveImageZone(
     selectionMode: SelectionMode,
     segmentedMask: Bitmap?,
     isSegmenting: Boolean,
+    isPremium: Boolean,
     onAddPath: (Path, Boolean) -> Unit,
     onUndo: () -> Unit,
     onPickImage: () -> Unit,
@@ -1006,11 +1027,17 @@ fun InteractiveImageZone(
                                         .padding(horizontal = 12.dp, vertical = 6.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        "✦ AI",
-                                        color = if (selectionMode == SelectionMode.AI_TAP) Color.Black else Color.White.copy(0.7f),
-                                        fontSize = 12.sp, fontWeight = FontWeight.Bold
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "✦ AI",
+                                            color = if (selectionMode == SelectionMode.AI_TAP) Color.Black else Color.White.copy(0.7f),
+                                            fontSize = 12.sp, fontWeight = FontWeight.Bold
+                                        )
+                                        if (!isPremium) {
+                                            Spacer(Modifier.width(4.dp))
+                                            Icon(Icons.Default.Star, contentDescription = "Pro Feature", modifier = Modifier.size(10.dp), tint = Color(0xFFFFD700))
+                                        }
+                                    }
                                 }
                                 // Manual Brush tab
                                 Box(
