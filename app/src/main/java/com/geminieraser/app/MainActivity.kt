@@ -1245,7 +1245,7 @@ fun AppHeader(isPremium: Boolean, compact: Boolean, onGoPro: () -> Unit, modifie
         ) {
             Box(
                 modifier = Modifier
-                    .size(56.dp)
+                    .size(72.dp)
                     .drawBehind {
                         drawCircle(
                             brush = Brush.radialGradient(
@@ -1264,7 +1264,7 @@ fun AppHeader(isPremium: Boolean, compact: Boolean, onGoPro: () -> Unit, modifie
                 Image(
                     painter = painterResource(id = R.drawable.logo_icon),
                     contentDescription = "Gemini Eraser Logo",
-                    modifier = Modifier.size(44.dp).scale(pulse)
+                    modifier = Modifier.size(58.dp).scale(pulse)
                 )
             }
             Spacer(Modifier.width(10.dp))
