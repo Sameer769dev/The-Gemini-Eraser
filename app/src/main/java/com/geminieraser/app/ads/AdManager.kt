@@ -83,7 +83,7 @@ class AdManager(private val context: Context) {
      * Shows Rewarded Ad. Invokes [onReward] if the user completes the video,
      * and [onClosed] when the ad UI is dismissed completely.
      */
-    fun showRewarded(activity: Activity, onReward: () -> Unit, onClosed: () -> Unit) {
+    fun showRewarded(activity: Activity, onReward: () -> Unit, onClosed: () -> Unit, onAdFailed: () -> Unit) {
         if (rewardedAd != null) {
             var earnedReward = false
             rewardedAd?.fullScreenContentCallback = object: FullScreenContentCallback() {
@@ -98,7 +98,7 @@ class AdManager(private val context: Context) {
 
                 override fun onAdFailedToShowFullScreenContent(adError: AdError) {
                     rewardedAd = null
-                    onClosed()
+                    onAdFailed()
                 }
             }
             rewardedAd?.show(activity) { rewardItem ->
@@ -106,10 +106,9 @@ class AdManager(private val context: Context) {
                 earnedReward = true
             }
         } else {
-            // Ad not ready, we can just treat it as a pass for now.
+            // Ad not ready, fallback to Paywall!
             loadRewardedAd()
-            onReward()
-            onClosed()
+            onAdFailed()
         }
     }
 }

@@ -14,6 +14,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -167,7 +168,7 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
         }
     }
 
-    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
         uri?.let {
             sourceBitmap        = decodeBitmapFromUri(context, it)
             resultBitmap        = null
@@ -179,17 +180,8 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
         }
     }
 
-    val requestPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) pickImage.launch("image/*")
-    }
-
     fun onPickImage() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
-            pickImage.launch("image/*")
-        } else {
-            requestPermission.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
-        }
+        pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     }
 
     fun onCancelSegmentation() {
@@ -243,14 +235,21 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                 val activity = context.findActivity()
                 if (activity != null) {
                     var earned = false
-                    adManager.showRewarded(activity, onReward = {
-                        earned = true
-                        performReEdit()
-                    }, onClosed = {
-                        if (!earned) {
-                            Toast.makeText(context, "Watch the full ad to continue editing!", Toast.LENGTH_SHORT).show()
+                    adManager.showRewarded(
+                        activity = activity,
+                        onReward = {
+                            earned = true
+                            performReEdit()
+                        },
+                        onClosed = {
+                            if (!earned) {
+                                Toast.makeText(context, "Watch the full ad to continue editing!", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onAdFailed = {
+                            showPaywallScreen = true
                         }
-                    })
+                    )
                 } else {
                     performReEdit()
                 }
@@ -341,14 +340,21 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                 val activity = context.findActivity()
                 if (activity != null) {
                     var earned = false
-                    adManager.showRewarded(activity, onReward = {
-                        earned = true
-                        saveImage()
-                    }, onClosed = {
-                        if (!earned) {
-                            Toast.makeText(context, "Watch the full ad to save your image!", Toast.LENGTH_SHORT).show()
+                    adManager.showRewarded(
+                        activity = activity,
+                        onReward = {
+                            earned = true
+                            saveImage()
+                        },
+                        onClosed = {
+                            if (!earned) {
+                                Toast.makeText(context, "Watch the full ad to save your image!", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onAdFailed = {
+                            showPaywallScreen = true
                         }
-                    })
+                    )
                 } else {
                     saveImage() // Fallback if no activity found but shouldn't happen
                 }
@@ -1264,7 +1270,7 @@ fun AppHeader(isPremium: Boolean, compact: Boolean, onGoPro: () -> Unit, modifie
                 Image(
                     painter = painterResource(id = R.drawable.logo_icon),
                     contentDescription = "Gemini Eraser Logo",
-                    modifier = Modifier.size(58.dp).scale(pulse)
+                    modifier = Modifier.size(101.dp).scale(pulse)
                 )
             }
             Spacer(Modifier.width(10.dp))
@@ -1414,4 +1420,4 @@ fun saveBitmapToGallery(context: Context, bitmap: Bitmap): Boolean {
         }
         true
     }.getOrDefault(false)
-}
+}
