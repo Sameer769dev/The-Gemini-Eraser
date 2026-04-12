@@ -570,7 +570,7 @@ fun PremiumPricingCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                .padding(horizontal = 14.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // ── Radio indicator ──
@@ -599,38 +599,38 @@ fun PremiumPricingCard(
 
             // ── Plan name + badge ──
             Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        "$planName Access",
-                        color      = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize   = 16.sp
-                    )
-                    if (isBestValue) {
-                        Box(
-                            modifier = Modifier
-                                .background(
-                                    Brush.linearGradient(listOf(Color(0xFF16A34A), Color(0xFF15803D))),
-                                    RoundedCornerShape(percent = 50)
-                                )
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                        ) {
-                            Text(
-                                "BEST VALUE",
-                                color         = Color.White,
-                                fontSize      = 8.5.sp,
-                                fontWeight    = FontWeight.ExtraBold,
-                                letterSpacing = 0.5.sp
+                // Title — single line; badge stacked below prevents horizontal overflow
+                Text(
+                    "$planName Access",
+                    color      = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize   = 15.sp,
+                    maxLines   = 1
+                )
+                if (isBestValue) {
+                    Spacer(Modifier.height(3.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                Brush.linearGradient(listOf(Color(0xFF16A34A), Color(0xFF15803D))),
+                                RoundedCornerShape(percent = 50)
                             )
-                        }
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            "BEST VALUE",
+                            color         = Color.White,
+                            fontSize      = 8.sp,
+                            fontWeight    = FontWeight.ExtraBold,
+                            letterSpacing = 0.5.sp
+                        )
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text(pricePerWeek, color = Color(0xFF71717A), fontSize = 12.sp)
+                Text(pricePerWeek, color = Color(0xFF71717A), fontSize = 11.sp)
             }
+
+            Spacer(Modifier.width(10.dp))
 
             // ── Price column ── (anchored: crossed-out original + price + savings)
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -647,12 +647,12 @@ fun PremiumPricingCard(
                         priceMain,
                         color      = if (isSelected) ProGoldLight else Color.White,
                         fontWeight = FontWeight.ExtraBold,
-                        fontSize   = 20.sp
+                        fontSize   = 19.sp
                     )
                     Text(
                         pricePeriod,
                         color    = Color(0xFF71717A),
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         modifier = Modifier.padding(bottom = 3.dp)
                     )
                 }
