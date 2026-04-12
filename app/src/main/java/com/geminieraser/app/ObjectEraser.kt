@@ -91,6 +91,7 @@ object ObjectEraser {
                 sourceBytes.toRequestBody(sourceMime.toMediaTypeOrNull()))
             .addFormDataPart("mask", "mask.png",
                 maskBytes.toRequestBody("image/png".toMediaTypeOrNull()))
+            .addFormDataPart("premium", isPremium.toString())
             .build()
             
         val request = Request.Builder()
