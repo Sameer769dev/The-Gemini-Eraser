@@ -1520,18 +1520,39 @@ fun ResolutionPickerSheet(
 
                 Spacer(Modifier.height(22.dp))
 
-                // Header
-                Text(
-                    "Save as",
-                    color = Color.White,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    "${origW} × ${origH}",
-                    color = Color.White.copy(alpha = 0.35f),
-                    fontSize = 12.sp,
-                )
+                // Header & Close Button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column {
+                        Text(
+                            "Save as",
+                            color = Color.White,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            "${origW} × ${origH}",
+                            color = Color.White.copy(alpha = 0.35f),
+                            fontSize = 12.sp,
+                        )
+                    }
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .offset(x = 12.dp, y = (-8).dp) // Nudge towards the corner for better padding balance
+                            .size(40.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = Color.White.copy(alpha = 0.5f),
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
 
                 Spacer(Modifier.height(24.dp))
 
