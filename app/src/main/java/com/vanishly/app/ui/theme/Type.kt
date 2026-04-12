@@ -1,4 +1,4 @@
-package com.geminieraser.app.ui.theme
+package com.vanishly.app.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle

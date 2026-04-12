@@ -1,4 +1,4 @@
-package com.geminieraser.app.ads
+package com.vanishly.app.ads
 
 import android.app.Activity
 import android.content.Context

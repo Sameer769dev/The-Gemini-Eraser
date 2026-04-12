@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.geminieraser.app"
+    namespace = "com.vanishly.app"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -12,7 +12,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.geminieraser.app"
+        applicationId = "com.vanishly.app"
         minSdk = 24
         targetSdk = 36
         versionCode = 4

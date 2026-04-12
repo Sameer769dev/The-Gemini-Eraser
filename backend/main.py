@@ -105,7 +105,7 @@ async def lifespan(app: FastAPI):
 # App
 # ─────────────────────────────────────────────
 app = FastAPI(
-    title="Gemini Eraser AI Backend",
+    title="Vanishly AI Backend",
     description="High-performance AI inpainting + upscaling powered by LaMa & FSRCNN.",
     version="3.0.0",
     lifespan=lifespan,

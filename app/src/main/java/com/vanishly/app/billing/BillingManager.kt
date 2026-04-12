@@ -1,4 +1,4 @@
-package com.geminieraser.app.billing
+package com.vanishly.app.billing
 
 import android.app.Activity
 import android.content.Context

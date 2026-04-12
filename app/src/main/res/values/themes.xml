@@ -2,7 +2,7 @@
 <resources>
     <!-- Compose takes over the entire screen; this XML theme simply provides
          a dark window background during the splash/startup transition. -->
-    <style name="Theme.GeminiEraser" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.Vanishly" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">#09090B</item>
         <item name="android:statusBarColor">#09090B</item>
         <item name="android:navigationBarColor">#09090B</item>

@@ -1,4 +1,4 @@
-package com.geminieraser.app
+package com.vanishly.app
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
@@ -452,9 +452,9 @@ fun FullScreenPaywall(
                         // Tier 1 = Yearly (best value, 3-day free trial)
                         // Tier 0 = Weekly
                         val productId = if (selectedTier == 1)
-                            com.geminieraser.app.billing.BillingManager.SUB_YEARLY
+                            com.vanishly.app.billing.BillingManager.SUB_YEARLY
                         else
-                            com.geminieraser.app.billing.BillingManager.SUB_WEEKLY
+                            com.vanishly.app.billing.BillingManager.SUB_WEEKLY
                         onSubscribe(productId)
                     },
                 contentAlignment = Alignment.Center

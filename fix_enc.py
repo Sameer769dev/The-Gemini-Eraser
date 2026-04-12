@@ -42,6 +42,6 @@ def fix_file(path):
         f.write('\n'.join(new_lines))
 
 print("Fixing files...")
-fix_file("app/src/main/java/com/geminieraser/app/MainActivity.kt")
-fix_file("app/src/main/java/com/geminieraser/app/Components.kt")
+fix_file("app/src/main/java/com/vanishly/app/MainActivity.kt")
+fix_file("app/src/main/java/com/vanishly/app/Components.kt")
 print("Done fixing files.")

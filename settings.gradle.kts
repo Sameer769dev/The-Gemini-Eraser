@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Gemini Eraser"
+rootProject.name = "Vanishly"
 include(":app")

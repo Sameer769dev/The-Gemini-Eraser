@@ -1,4 +1,4 @@
-package com.geminieraser.app.ui.theme
+package com.vanishly.app.ui.theme
 
 import android.app.Activity
 import android.os.Build
@@ -57,7 +57,7 @@ val ExpressiveShapes = Shapes(
 )
 
 @Composable
-fun GeminiEraserTheme(
+fun VanishlyTheme(
     // Force dark theme as the app is dark-mode only based on current aesthetic
     darkTheme: Boolean = true,
     // Dynamic color is available on Android 12+

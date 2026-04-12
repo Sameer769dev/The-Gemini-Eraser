@@ -1,4 +1,4 @@
-package com.geminieraser.app
+package com.vanishly.app
 
 import android.Manifest
 import android.content.ContentValues
@@ -69,8 +69,8 @@ import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.AdSize
 import com.google.android.gms.ads.AdView
 import com.google.android.gms.ads.MobileAds
-import com.geminieraser.app.billing.BillingManager
-import com.geminieraser.app.ads.AdManager
+import com.vanishly.app.billing.BillingManager
+import com.vanishly.app.ads.AdManager
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 
@@ -86,8 +86,8 @@ class MainActivity : ComponentActivity() {
         adManager = AdManager(this)
 
         setContent {
-            GeminiEraserTheme {
-                GeminiEraserApp(billingManager, adManager)
+            VanishlyTheme {
+                VanishlyApp(billingManager, adManager)
             }
         }
     }
@@ -103,7 +103,7 @@ tailrec fun Context.findActivity(): Activity? = when (this) {
 // THEME
 // ────────────────────────────────────────────────────────────────────────────
 @Composable
-fun GeminiEraserTheme(content: @Composable () -> Unit) {
+fun VanishlyTheme(content: @Composable () -> Unit) {
     val colorScheme = darkColorScheme(
         primary          = Color(0xFF8B5CF6),
         onPrimary        = Color.White,
@@ -131,7 +131,7 @@ data class DrawnStroke(val path: Path, val isFilled: Boolean)
 // ROOT APP
 // ────────────────────────────────────────────────────────────────────────────
 @Composable
-fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
+fun VanishlyApp(billingManager: BillingManager, adManager: AdManager) {
     val context     = LocalContext.current
     val coroutine   = rememberCoroutineScope()
     val isPremium   by billingManager.isPremium.collectAsState()
@@ -670,7 +670,7 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                         )
                     }
                     Text(
-                        if (displaySuccess) "Saved to GeminiEraser" else "Failed to save",
+                        if (displaySuccess) "Saved to Vanishly" else "Failed to save",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
@@ -1382,14 +1382,14 @@ fun AppHeader(isPremium: Boolean, compact: Boolean, onGoPro: () -> Unit, modifie
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.logo_icon),
-                    contentDescription = "Gemini Eraser Logo",
+                    contentDescription = "Vanishly Logo",
                     modifier = Modifier.size(101.dp).scale(pulse)
                 )
             }
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "Gemini Eraser",
+                    "Vanishly",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
@@ -1457,12 +1457,12 @@ fun AppHeader(isPremium: Boolean, compact: Boolean, onGoPro: () -> Unit, modifie
         ) {
             Image(
                 painter = painterResource(id = R.drawable.logo_icon),
-                contentDescription = "Gemini Eraser Logo",
+                contentDescription = "Vanishly Logo",
                 modifier = Modifier.size(200.dp).scale(pulse)
             )
             // Gradient shimmer title
             Text(
-                "Gemini Eraser",
+                "Vanishly",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 color = Color.White
@@ -1752,7 +1752,7 @@ fun saveBitmapToGallery(context: Context, bitmap: Bitmap): Boolean {
         put(MediaStore.Images.Media.DISPLAY_NAME, "Eraser_${System.currentTimeMillis()}.png")
         put(MediaStore.Images.Media.MIME_TYPE, "image/png")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            put(MediaStore.Images.Media.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/GeminiEraser")
+            put(MediaStore.Images.Media.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/Vanishly")
             put(MediaStore.Images.Media.IS_PENDING, 1)
         }
     }

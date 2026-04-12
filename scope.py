@@ -2,7 +2,7 @@ import sys
 import io
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-with open('app/src/main/java/com/geminieraser/app/MainActivity.kt', encoding='utf-8') as f:
+with open('app/src/main/java/com/vanishly/app/MainActivity.kt', encoding='utf-8') as f:
     lines = f.readlines()
 
 indent_level = 0

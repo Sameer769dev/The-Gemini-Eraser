@@ -33,7 +33,7 @@
 
 > Task :app:compileDebugKotlin FAILED
 .\gradlew.bat : e: 
-file:///C:/Users/dhana/Desktop/The%20Gemini%20Eraser/app/src/main/java/com/geminieraser/app/MainActivity.kt:370:21 
+file:///C:/Users/dhana/Desktop/The%20Vanishly%20Eraser/app/src/main/java/com/vanishly/app/MainActivity.kt:370:21 
 Unresolved reference 'GalleryScreen'.
 At line:1 char:1
 + .\gradlew.bat assembleDebug 2>&1 | Out-File build_log4.txt -Encoding  ...
@@ -41,33 +41,33 @@ At line:1 char:1
     + CategoryInfo          : NotSpecified: (e: file:///C:/U...GalleryScreen'.:String) [], RemoteException
     + FullyQualifiedErrorId : NativeCommandError
  
-e: file:///C:/Users/dhana/Desktop/The%20Gemini%20Eraser/app/src/main/java/com/geminieraser/app/MainActivity.kt:372:21 
+e: file:///C:/Users/dhana/Desktop/The%20Vanishly%20Eraser/app/src/main/java/com/vanishly/app/MainActivity.kt:372:21 
 Unresolved reference 'EmptyState'.
-e: file:///C:/Users/dhana/Desktop/The%20Gemini%20Eraser/app/src/main/java/com/geminieraser/app/MainActivity.kt:435:13 
+e: file:///C:/Users/dhana/Desktop/The%20Vanishly%20Eraser/app/src/main/java/com/vanishly/app/MainActivity.kt:435:13 
 Unresolved reference 'GlassLimitDialog'.
-e: file:///C:/Users/dhana/Desktop/The%20Gemini%20Eraser/app/src/main/java/com/geminieraser/app/MainActivity.kt:603:17 
+e: file:///C:/Users/dhana/Desktop/The%20Vanishly%20Eraser/app/src/main/java/com/vanishly/app/MainActivity.kt:603:17 
 Unresolved reference 'UsagePill'.
-e: file:///C:/Users/dhana/Desktop/The%20Gemini%20Eraser/app/src/main/java/com/geminieraser/app/MainActivity.kt:612:17 
+e: file:///C:/Users/dhana/Desktop/The%20Vanishly%20Eraser/app/src/main/java/com/vanishly/app/MainActivity.kt:612:17 
 Unresolved reference 'BrushSizeRow'.
-e: file:///C:/Users/dhana/Desktop/The%20Gemini%20Eraser/app/src/main/java/com/geminieraser/app/MainActivity.kt:613:17 
+e: file:///C:/Users/dhana/Desktop/The%20Vanishly%20Eraser/app/src/main/java/com/vanishly/app/MainActivity.kt:613:17 
 Unresolved reference 'EraseButton'.
-e: file:///C:/Users/dhana/Desktop/The%20Gemini%20Eraser/app/src/main/java/com/geminieraser/app/MainActivity.kt:664:25 
+e: file:///C:/Users/dhana/Desktop/The%20Vanishly%20Eraser/app/src/main/java/com/vanishly/app/MainActivity.kt:664:25 
 Unresolved reference 'MiniIconButton'.
-e: file:///C:/Users/dhana/Desktop/The%20Gemini%20Eraser/app/src/main/java/com/geminieraser/app/MainActivity.kt:669:25 
+e: file:///C:/Users/dhana/Desktop/The%20Vanishly%20Eraser/app/src/main/java/com/vanishly/app/MainActivity.kt:669:25 
 Unresolved reference 'MiniIconButton'.
-e: file:///C:/Users/dhana/Desktop/The%20Gemini%20Eraser/app/src/main/java/com/geminieraser/app/MainActivity.kt:674:25 
+e: file:///C:/Users/dhana/Desktop/The%20Vanishly%20Eraser/app/src/main/java/com/vanishly/app/MainActivity.kt:674:25 
 Unresolved reference 'MiniIconButton'.
-e: file:///C:/Users/dhana/Desktop/The%20Gemini%20Eraser/app/src/main/java/com/geminieraser/app/MainActivity.kt:692:17 
+e: file:///C:/Users/dhana/Desktop/The%20Vanishly%20Eraser/app/src/main/java/com/vanishly/app/MainActivity.kt:692:17 
 Unresolved reference 'EraseButton'.
-e: file:///C:/Users/dhana/Desktop/The%20Gemini%20Eraser/app/src/main/java/com/geminieraser/app/MainActivity.kt:699:1 
+e: file:///C:/Users/dhana/Desktop/The%20Vanishly%20Eraser/app/src/main/java/com/vanishly/app/MainActivity.kt:699:1 
 Modifier 'private' is not applicable to 'local function'.
-e: file:///C:/Users/dhana/Desktop/The%20Gemini%20Eraser/app/src/main/java/com/geminieraser/app/MainActivity.kt:719:1 
+e: file:///C:/Users/dhana/Desktop/The%20Vanishly%20Eraser/app/src/main/java/com/vanishly/app/MainActivity.kt:719:1 
 Modifier 'private' is not applicable to 'local function'.
-e: file:///C:/Users/dhana/Desktop/The%20Gemini%20Eraser/app/src/main/java/com/geminieraser/app/MainActivity.kt:756:1 
+e: file:///C:/Users/dhana/Desktop/The%20Vanishly%20Eraser/app/src/main/java/com/vanishly/app/MainActivity.kt:756:1 
 Modifier 'private' is not applicable to 'local function'.
-e: file:///C:/Users/dhana/Desktop/The%20Gemini%20Eraser/app/src/main/java/com/geminieraser/app/MainActivity.kt:780:1 
+e: file:///C:/Users/dhana/Desktop/The%20Vanishly%20Eraser/app/src/main/java/com/vanishly/app/MainActivity.kt:780:1 
 Modifier 'private' is not applicable to 'local function'.
-e: file:///C:/Users/dhana/Desktop/The%20Gemini%20Eraser/app/src/main/java/com/geminieraser/app/MainActivity.kt:821:1 
+e: file:///C:/Users/dhana/Desktop/The%20Vanishly%20Eraser/app/src/main/java/com/vanishly/app/MainActivity.kt:821:1 
 Modifier 'private' is not applicable to 'local function'.
 
 FAILURE: Build failed with an exception.

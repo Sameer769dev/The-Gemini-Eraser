@@ -1,4 +1,4 @@
-package com.geminieraser.app
+package com.vanishly.app
 
 import android.net.Uri
 import androidx.compose.animation.core.*

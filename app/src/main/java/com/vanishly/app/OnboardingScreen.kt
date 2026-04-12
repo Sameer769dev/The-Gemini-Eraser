@@ -1,4 +1,4 @@
-package com.geminieraser.app
+package com.vanishly.app
 
 import android.content.Context
 import androidx.compose.animation.core.*
@@ -53,7 +53,7 @@ private val SLIDES
     @Composable get() = listOf(
     LuxSlide(
         emoji      = "✦",
-        title      = "Gemini Eraser",
+        title      = "Vanishly",
         body       = "AI-powered object & blemish removal.\nPremium results in seconds.",
         accent     = MaterialTheme.colorScheme.primary,
         auroraShift = Color(0xFF3A1800),

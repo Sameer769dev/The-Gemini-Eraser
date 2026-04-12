@@ -45,4 +45,4 @@ def fix_file(path):
     with open(path, 'w', encoding='utf-8') as f:
         f.write(content)
 
-fix_file('app/src/main/java/com/geminieraser/app/MainActivity.kt')
+fix_file('app/src/main/java/com/vanishly/app/MainActivity.kt')

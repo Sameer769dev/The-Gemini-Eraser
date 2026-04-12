@@ -1,4 +1,4 @@
-package com.geminieraser.app.ui.theme
+package com.vanishly.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

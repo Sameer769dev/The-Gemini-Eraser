@@ -1,4 +1,4 @@
-package com.geminieraser.app
+package com.vanishly.app
 
 import android.content.Context
 import java.text.SimpleDateFormat

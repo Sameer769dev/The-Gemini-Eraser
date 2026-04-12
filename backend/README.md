@@ -1,5 +1,5 @@
 ---
-title: Gemini Eraser AI Backend
+title: Vanishly AI Backend
 emoji: ✨
 colorFrom: purple
 colorTo: blue
@@ -10,7 +10,7 @@ license: mit
 short_description: AI inpainting API using LaMa
 ---
 
-# ✦ Gemini Eraser — AI Inpainting Backend
+# ✦ Vanishly — AI Inpainting Backend
 
 A production-grade REST API that uses the **LaMa (Large Mask Inpainting)** neural network to remove watermarks, objects, and unwanted elements from images — with Photoshop-quality results and zero artifacts.
 
@@ -38,7 +38,7 @@ Interactive Swagger UI to test the API directly in your browser.
 ## 🛠️ Example (curl)
 
 ```bash
-curl -X POST "https://your-username-gemini-eraser-ai.hf.space/inpaint" \
+curl -X POST "https://your-username-vanishly-ai.hf.space/inpaint" \
   -F "image=@photo.png" \
   -F "mask=@mask.png" \
   --output result.png
