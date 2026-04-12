@@ -214,6 +214,11 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Cancelled by user — UI was already reset in onCancelSegmentation()
+            } catch (e: Exception) {
+                // Network error, offline, server error etc.
+                isSegmenting = false
+                segmentedMaskBitmap = null
+                Toast.makeText(context, e.message ?: "Couldn't reach server. Check your connection.", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -286,8 +291,10 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                     drawnPaths.clear()
                     segmentedMaskBitmap = null
                 }.onFailure { err ->
-                    errorMessage = err.message ?: "Unknown error"
-                    state        = ProcessingState.ERROR
+                    state = ProcessingState.IDLE  // Reset to IDLE so the Erase button re-enables
+                    val msg = err.message ?: "Something went wrong. Please try again."
+                    errorMessage = msg
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                 }
             }
         }

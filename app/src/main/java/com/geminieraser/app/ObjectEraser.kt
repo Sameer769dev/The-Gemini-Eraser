@@ -102,22 +102,41 @@ object ObjectEraser {
         // 3. Execute HTTP Call
         try {
             val response = client.newCall(request).execute()
+
+            // Surface server-side errors as exceptions (HTTP 4xx / 5xx)
             if (!response.isSuccessful) {
-                Log.e(TAG, "API Error: ${response.code} ${response.message}")
-                return source // Return original if failed
+                val code = response.code
+                val body = response.body?.string()?.take(200) ?: "(no body)"
+                Log.e(TAG, "API Error $code: $body")
+                when (code) {
+                    503 -> throw RuntimeException("Our AI is waking up 😴 — give it a few seconds and try again!")
+                    in 500..599 -> throw RuntimeException("Our AI hit a snag. Give it a moment and try again!")
+                    else -> throw RuntimeException("Something didn't go as planned. Please try again!")
+                }
             }
             
-            // 4. Decode PNG Response back into a Bitmap
+            // 4. Decode JPEG/PNG response back into a Bitmap
             val responseBytes = response.body?.bytes()
-            if (responseBytes != null) {
-                Log.d(TAG, "Generative Inpainting successful.")
-                return BitmapFactory.decodeByteArray(responseBytes, 0, responseBytes.size)
-            }
+                ?: throw RuntimeException("Empty response from server. Please try again.")
+
+            val result = BitmapFactory.decodeByteArray(responseBytes, 0, responseBytes.size)
+                ?: throw RuntimeException("Could not decode server response. Please try again.")
+
+            Log.d(TAG, "Generative Inpainting successful.")
+            return result
+
+        } catch (e: java.net.UnknownHostException) {
+            Log.e(TAG, "No internet connection", e)
+            throw RuntimeException("No internet 🚫 — please check your Wi-Fi or mobile data and try again.")
+        } catch (e: java.net.SocketTimeoutException) {
+            Log.e(TAG, "Request timed out", e)
+            throw RuntimeException("Our AI is a bit busy right now 🔄 — please try again in a moment!")
+        } catch (e: RuntimeException) {
+            throw e  // Re-throw our own descriptive errors
         } catch (e: Exception) {
-            Log.e(TAG, "Exception during Generative Request", e)
+            Log.e(TAG, "Unexpected exception during inpainting", e)
+            throw RuntimeException("Hmm, something went wrong. Please try again!")
         }
-        
-        return source
     }
 
     /**
@@ -163,23 +182,37 @@ object ObjectEraser {
         try {
             val response = client.newCall(request).execute()
             if (!response.isSuccessful) {
-                Log.e(TAG, "API Segment Error: ${response.code} ${response.message}")
-                return null
+                val code = response.code
+                Log.e(TAG, "API Segment Error: $code")
+                when (code) {
+                    503 -> throw RuntimeException("Our AI is waking up 😴 — give it a few seconds and try again!")
+                    else -> throw RuntimeException("Something didn't go as planned. Please try again!")
+                }
             }
             
             val responseBytes = response.body?.bytes()
-            if (responseBytes != null) {
-                Log.d(TAG, "Generative Segmentation successful.")
-                val mask = BitmapFactory.decodeByteArray(responseBytes, 0, responseBytes.size)
-                
-                // Scale back to original dimension mathematically
-                return if (mask.width != source.width || mask.height != source.height) {
-                    Bitmap.createScaledBitmap(mask, source.width, source.height, true)
-                } else mask
-            }
+                ?: throw RuntimeException("Empty segmentation response. Please try again.")
+
+            Log.d(TAG, "Generative Segmentation successful.")
+            val mask = BitmapFactory.decodeByteArray(responseBytes, 0, responseBytes.size)
+                ?: throw RuntimeException("Could not decode segmentation mask.")
+            
+            // Scale back to original dimension mathematically
+            return if (mask.width != source.width || mask.height != source.height) {
+                Bitmap.createScaledBitmap(mask, source.width, source.height, true)
+            } else mask
+
+        } catch (e: java.net.UnknownHostException) {
+            Log.e(TAG, "No internet connection", e)
+            throw RuntimeException("No internet 🚫 — please check your Wi-Fi or mobile data and try again.")
+        } catch (e: java.net.SocketTimeoutException) {
+            Log.e(TAG, "Segment request timed out", e)
+            throw RuntimeException("Our AI is a bit busy right now 🔄 — please try again in a moment!")
+        } catch (e: RuntimeException) {
+            throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Exception during Generative Segmenting Request", e)
+            Log.e(TAG, "Unexpected exception during segmentation", e)
+            throw RuntimeException("Hmm, something went wrong. Please try again!")
         }
-        return null
     }
 }
