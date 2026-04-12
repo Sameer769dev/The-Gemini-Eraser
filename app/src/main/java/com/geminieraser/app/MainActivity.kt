@@ -1395,7 +1395,7 @@ fun AppHeader(isPremium: Boolean, compact: Boolean, onGoPro: () -> Unit, modifie
                     color = Color.White
                 )
                 Text(
-                    "AI-powered object removal",
+                    "Erase objects · AI upscale saves",
                     color = Color(0xFF94A3B8),
                     fontSize = 11.sp
                 )
@@ -1468,7 +1468,7 @@ fun AppHeader(isPremium: Boolean, compact: Boolean, onGoPro: () -> Unit, modifie
                 color = Color.White
             )
             Text(
-                "AI-powered object removal",
+                "Erase objects · AI upscale saves",
                 color = Color(0xFF94A3B8),
                 fontSize = 13.sp
             )

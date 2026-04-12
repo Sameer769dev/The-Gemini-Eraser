@@ -72,6 +72,13 @@ private val SLIDES
         accent     = MaterialTheme.colorScheme.tertiary,
         auroraShift = Color(0xFF300A15),
     ),
+    LuxSlide(
+        emoji      = "✨",
+        title      = "Save in Stunning Quality",
+        body       = "PRO members save at 2× or 4× higher\nresolution using on-server AI upscaling —\nlike Upscayl, built right into your saves.",
+        accent     = Color(0xFF8B5CF6),
+        auroraShift = Color(0xFF0D0820),
+    ),
 )
 
 // ── Screen ────────────────────────────────────────────────────────────────────

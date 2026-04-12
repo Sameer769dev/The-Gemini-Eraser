@@ -246,7 +246,7 @@ fun FullScreenPaywall(
 
                     // Main headline — outcome-focused (not feature-list)
                     Text(
-                        "Erase Anything.\nPerfectly.",
+                        "Erase. Enhance.\nPerfect Results.",
                         color         = Color.White,
                         fontWeight    = FontWeight.ExtraBold,
                         fontSize      = 36.sp,
@@ -259,7 +259,7 @@ fun FullScreenPaywall(
 
                     // Social proof — trust through numbers
                     Text(
-                        "Join 50,000+ users who remove objects\nwithout a trace",
+                        "Join 50,000+ users getting studio-quality\nerases & AI-upscaled saves",
                         color     = Color(0xFF71717A),
                         fontSize  = 14.sp,
                         textAlign = TextAlign.Center,
@@ -277,12 +277,86 @@ fun FullScreenPaywall(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ProFeatureCard("🎯", "Precision AI",    "Object-aware removal",   Modifier.weight(1f))
-                        ProFeatureCard("⚡", "Priority Speed",  "2× faster processing",   Modifier.weight(1f))
+                        ProFeatureCard("🎯", "Precision AI",     "Object-aware removal",    Modifier.weight(1f))
+                        ProFeatureCard("⚡", "Priority Speed",   "2× faster processing",    Modifier.weight(1f))
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ProFeatureCard("🚫", "Zero Ads",        "Fully uninterrupted",    Modifier.weight(1f))
-                        ProFeatureCard("♾️", "Unlimited",       "No daily limits ever",   Modifier.weight(1f))
+                        ProFeatureCard("🚫", "Zero Ads",         "Fully uninterrupted",     Modifier.weight(1f))
+                        ProFeatureCard("♾️", "Unlimited",        "No daily limits ever",    Modifier.weight(1f))
+                    }
+
+                    // AI Upscaling highlight — full-width banner card
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(
+                                brush = Brush.horizontalGradient(
+                                    listOf(Color(0xFF1A0D2E), Color(0xFF0F1A2E))
+                                )
+                            )
+                            .border(
+                                1.dp,
+                                Brush.linearGradient(listOf(Color(0xFF8B5CF6).copy(0.7f), Color(0xFF3B82F6).copy(0.5f))),
+                                RoundedCornerShape(14.dp)
+                            )
+                            .padding(horizontal = 16.dp, vertical = 14.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            // Icon
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .background(
+                                        Brush.radialGradient(
+                                            listOf(Color(0xFF8B5CF6).copy(0.25f), Color.Transparent)
+                                        ),
+                                        CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("✦", fontSize = 22.sp, color = Color(0xFF8B5CF6))
+                            }
+                            // Text
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        "AI Upscaling",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .background(
+                                                Brush.horizontalGradient(listOf(Color(0xFF8B5CF6), Color(0xFF3B82F6))),
+                                                RoundedCornerShape(percent = 50)
+                                            )
+                                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            "PRO EXCLUSIVE",
+                                            color = Color.White,
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            letterSpacing = 0.5.sp
+                                        )
+                                    }
+                                }
+                                Text(
+                                    "Save in 2× or 4× sharper resolution — powered by FSRCNN neural AI. Like Upscayl, built into your saves.",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -697,7 +771,7 @@ fun PremiumLimitDialog(
                 Spacer(Modifier.height(8.dp))
 
                 Text(
-                    "You've used all $limit free erases for today.\nUpgrade to Pro for unlimited removals.",
+                    "You've used all $limit free erases today.\nGo Pro for unlimited erases, zero ads,\nand AI-powered upscaling on every save.",
                     color     = Color(0xFF71717A),
                     fontSize  = 14.sp,
                     textAlign = TextAlign.Center,
