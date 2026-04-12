@@ -327,11 +327,12 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
     fun onSave(targetMaxPx: Int = Int.MAX_VALUE) {
         val bmp = resultBitmap ?: return
 
-        // Scale bitmap to the chosen resolution tier
-        val finalBmp = if (targetMaxPx == Int.MAX_VALUE || (bmp.width <= targetMaxPx && bmp.height <= targetMaxPx)) {
+        // Scale bitmap exactly to the requested target dimension if it differs
+        val origMax = maxOf(bmp.width, bmp.height)
+        val finalBmp = if (targetMaxPx == Int.MAX_VALUE || targetMaxPx == origMax) {
             bmp
         } else {
-            val ratio = targetMaxPx.toFloat() / maxOf(bmp.width, bmp.height)
+            val ratio = targetMaxPx.toFloat() / origMax
             Bitmap.createScaledBitmap(bmp, (bmp.width * ratio).toInt(), (bmp.height * ratio).toInt(), true)
         }
 
@@ -1471,7 +1472,7 @@ private data class ResolutionTier(
 private val RESOLUTION_TIERS = listOf(
     ResolutionTier("Low",      "Smaller file, quick share", 720,           isPro = false),
     ResolutionTier("High",     "Sharp & detailed",          1080,          isPro = true),
-    ResolutionTier("Original", "Maximum quality",           Int.MAX_VALUE, isPro = true),
+    ResolutionTier("Max",      "Maximum possible quality",  Int.MAX_VALUE, isPro = true),
 )
 
 @Composable
@@ -1557,18 +1558,23 @@ fun ResolutionPickerSheet(
                 Spacer(Modifier.height(24.dp))
 
                 // Options
+                val origMax = maxOf(origW, origH)
                 RESOLUTION_TIERS.forEach { tier ->
                     val locked = tier.isPro && !isPremium
-                    val outW = if (tier.maxPx == Int.MAX_VALUE) origW
-                               else { val r = tier.maxPx.toFloat() / maxOf(origW, origH); if (r < 1f) (origW * r).toInt() else origW }
-                    val outH = if (tier.maxPx == Int.MAX_VALUE) origH
-                               else { val r = tier.maxPx.toFloat() / maxOf(origW, origH); if (r < 1f) (origH * r).toInt() else origH }
+                    val targetDim = when (tier.label) {
+                        "Low" -> minOf(origMax, 720)
+                        "High" -> maxOf(1080, minOf(origMax, 1920))
+                        else -> maxOf(origMax, 2160) // "Max" gives an upscaled premium feel if small
+                    }
+                    val r = targetDim.toFloat() / origMax
+                    val outW = (origW * r).toInt()
+                    val outH = (origH * r).toInt()
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                if (locked) onGoPro() else onSelect(tier.maxPx, tier.isPro)
+                                if (locked) onGoPro() else onSelect(targetDim, tier.isPro)
                             }
                             .padding(vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1647,7 +1653,7 @@ fun ResolutionPickerSheet(
                                 fontWeight = FontWeight.SemiBold,
                             )
                             Text(
-                                "Unlock High & Original quality saves",
+                                "Unlock High & Max quality saves",
                                 color = Color(0xFFFFAB00).copy(alpha = 0.6f),
                                 fontSize = 11.sp,
                             )
