@@ -234,7 +234,7 @@ fun FullScreenPaywall(
                             .padding(horizontal = 16.dp, vertical = 5.dp)
                     ) {
                         Text(
-                            "✦  GEMINI ERASER PRO",
+                            "✦  VANISHLY PRO",
                             color         = ProTextDark,
                             fontSize      = 11.sp,
                             fontWeight    = FontWeight.ExtraBold,

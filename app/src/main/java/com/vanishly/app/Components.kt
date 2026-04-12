@@ -300,7 +300,7 @@ fun ProBadgePill(modifier: Modifier = Modifier) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("✦", color = ProTextDark, fontSize = 11.sp, fontWeight = FontWeight.Black)
             Text(
-                "GEMINI ERASER PRO",
+                "VANISHLY PRO",
                 color         = ProTextDark,
                 fontWeight    = FontWeight.ExtraBold,
                 fontSize      = 12.sp,
