@@ -16,6 +16,10 @@ import java.util.concurrent.TimeUnit
  *
  * Utilizes a powerful cloud/local FastAPI backend running the LaMa AI model.
  * This completely prevents blurring and artifacting by using Generative Diffusion / Inference.
+ *
+ * PRO Feature — AI Upscaling via FSRCNN:
+ * The /upscale endpoint runs a Fast Super-Resolution CNN that synthesizes genuine texture
+ * detail at 2× or 4× scale — unlike simple LANCZOS resize which just blurs pixels.
  */
 object ObjectEraser {
 
@@ -30,13 +34,14 @@ object ObjectEraser {
     private const val PRODUCTION_BASE = "https://samir87699-gemini-eraser-ai.hf.space"
     private val BASE_URL = if (IS_PRODUCTION) PRODUCTION_BASE else LOCAL_BASE
 
-    private val INPAINT_URL = "$BASE_URL/inpaint"
-    private val SEGMENT_URL = "$BASE_URL/segment"
+    private val INPAINT_URL  = "$BASE_URL/inpaint"
+    private val SEGMENT_URL  = "$BASE_URL/segment"
+    private val UPSCALE_URL  = "$BASE_URL/upscale"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
+        .readTimeout(150, TimeUnit.SECONDS)   // upscale can take ~5-8s on large images
         .build()
 
     /**
@@ -136,6 +141,82 @@ object ObjectEraser {
         } catch (e: Exception) {
             Log.e(TAG, "Unexpected exception during inpainting", e)
             throw RuntimeException("Hmm, something went wrong. Please try again!")
+        }
+    }
+
+    /**
+     * AI Super-Resolution — PRO feature only.
+     *
+     * Sends the bitmap to the /upscale backend endpoint which runs FSRCNN —
+     * a Fast Super-Resolution CNN that synthesizes genuine texture detail,
+     * unlike simple resize algorithms that just blur pixels.
+     *
+     * @param source     The inpainted result Bitmap to upscale.
+     * @param scale      2 = 2× upscale (HD quality), 4 = 4× upscale (4K quality).
+     * @param isPremium  Must be true — server rejects free users.
+     */
+    fun upscale(source: Bitmap, scale: Int = 2, isPremium: Boolean): Bitmap {
+        require(isPremium) { "Upscaling is a PRO feature." }
+        require(scale in listOf(2, 4)) { "Scale must be 2 or 4." }
+
+        Log.d(TAG, "Starting AI Upscaling... (scale=${scale}x, size=${source.width}x${source.height})")
+
+        // Encode as high-quality JPEG for upload (smaller payload, fast transfer)
+        // The server receives this, runs FSRCNN, and returns a lossless PNG.
+        val stream = ByteArrayOutputStream()
+        source.compress(Bitmap.CompressFormat.JPEG, 92, stream)
+        val imageBytes = stream.toByteArray()
+
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart(
+                "image", "source.jpg",
+                imageBytes.toRequestBody("image/jpeg".toMediaTypeOrNull())
+            )
+            .addFormDataPart("scale", scale.toString())
+            .addFormDataPart("premium", "true")
+            .build()
+
+        val request = Request.Builder()
+            .url(UPSCALE_URL)
+            .post(requestBody)
+            .build()
+
+        try {
+            val response = client.newCall(request).execute()
+
+            if (!response.isSuccessful) {
+                val code = response.code
+                val body = response.body?.string()?.take(200) ?: "(no body)"
+                Log.e(TAG, "Upscale API Error $code: $body")
+                when (code) {
+                    403 -> throw RuntimeException("AI upscaling is a PRO feature.")
+                    503 -> throw RuntimeException("Our AI is warming up 😴 — please try again in a moment!")
+                    in 500..599 -> throw RuntimeException("Our AI hit a snag during upscaling. Please try again!")
+                    else -> throw RuntimeException("Something didn't go as planned. Please try again!")
+                }
+            }
+
+            val responseBytes = response.body?.bytes()
+                ?: throw RuntimeException("Empty upscale response. Please try again.")
+
+            val result = BitmapFactory.decodeByteArray(responseBytes, 0, responseBytes.size)
+                ?: throw RuntimeException("Could not decode upscaled image. Please try again.")
+
+            Log.d(TAG, "AI Upscaling successful: ${result.width}x${result.height}")
+            return result
+
+        } catch (e: java.net.UnknownHostException) {
+            Log.e(TAG, "No internet connection during upscale", e)
+            throw RuntimeException("No internet 🚫 — please check your connection and try again.")
+        } catch (e: java.net.SocketTimeoutException) {
+            Log.e(TAG, "Upscale request timed out", e)
+            throw RuntimeException("Our AI is a bit busy right now 🔄 — please try again in a moment!")
+        } catch (e: RuntimeException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected exception during upscaling", e)
+            throw RuntimeException("Hmm, something went wrong during upscaling. Please try again!")
         }
     }
 

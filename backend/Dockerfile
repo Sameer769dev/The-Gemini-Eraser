@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libgl1 \
     git \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Hugging Face Spaces requires all files owned by user 1000 ────────────────
@@ -20,6 +21,17 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Copy application code
 COPY --chown=appuser:appuser . .
+
+# ─── Pre-bake FSRCNN super-resolution model weights (~600KB total) ─────────────
+# FSRCNN is a lightweight AI upscaling CNN that runs on CPU in 1-3 seconds.
+# x2 model: 720p → 1440p (HD) for "High" PRO tier
+# x4 model: 720p → 2880p (4K) for "Max" PRO tier
+# Baking into the image avoids cold-start downloads.
+RUN wget -q -O /app/FSRCNN_x2.pb \
+    "https://github.com/Saafke/FSRCNN_Tensorflow/raw/master/models/FSRCNN_x2.pb" && \
+    wget -q -O /app/FSRCNN_x4.pb \
+    "https://github.com/Saafke/FSRCNN_Tensorflow/raw/master/models/FSRCNN_x4.pb" && \
+    echo "✅ FSRCNN models downloaded."
 
 # ─── Pre-download the LaMa model weights into the image ───────────────────────
 # This bakes the ~200MB model into the Docker image so it cold-starts instantly

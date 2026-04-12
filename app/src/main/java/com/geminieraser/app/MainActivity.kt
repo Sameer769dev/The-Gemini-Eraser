@@ -145,6 +145,7 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
     var showPaywallScreen by remember { mutableStateOf(false) }
     var showResolutionPicker by remember { mutableStateOf(false) }
     var actionCount       by remember { mutableStateOf(0) }
+    var isUpscaling       by remember { mutableStateOf(false) }
 
     // User's drawing strokes mapped to intrinsic image coordinates
     // We maintain a list of Paths representing strokes on the real 1:1 image.
@@ -324,27 +325,51 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
         }
     }
 
-    fun onSave(targetMaxPx: Int = Int.MAX_VALUE) {
+    fun onSave(targetMaxPx: Int = Int.MAX_VALUE, upscaleScale: Int = 0) {
         val bmp = resultBitmap ?: return
 
-        // Scale bitmap exactly to the requested target dimension if it differs
+        // Scale bitmap to requested dimension on the device side (always done first)
         val origMax = maxOf(bmp.width, bmp.height)
-        val finalBmp = if (targetMaxPx == Int.MAX_VALUE || targetMaxPx == origMax) {
+        val scaledBmp = if (targetMaxPx == Int.MAX_VALUE || targetMaxPx == origMax) {
             bmp
         } else {
             val ratio = targetMaxPx.toFloat() / origMax
             Bitmap.createScaledBitmap(bmp, (bmp.width * ratio).toInt(), (bmp.height * ratio).toInt(), true)
         }
 
-        val saveImage = {
+        // For PRO AI-upscaled tiers, call the backend before saving
+        val saveImage: (Bitmap) -> Unit = { finalBmp ->
             coroutine.launch {
                 val saved = withContext(Dispatchers.IO) { saveBitmapToGallery(context, finalBmp) }
                 saveFeedback = saved
             }
         }
 
+        val performSave = {
+            if (isPremium && upscaleScale >= 2) {
+                // AI upscale path — call FSRCNN backend, show spinner
+                coroutine.launch {
+                    isUpscaling = true
+                    try {
+                        val upscaled = withContext(Dispatchers.IO) {
+                            ObjectEraser.upscale(scaledBmp, upscaleScale, isPremium = true)
+                        }
+                        saveImage(upscaled)
+                    } catch (e: Exception) {
+                        val msg = e.message ?: "AI enhancement failed. Please try again."
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        saveFeedback = false
+                    } finally {
+                        isUpscaling = false
+                    }
+                }
+            } else {
+                saveImage(scaledBmp)
+            }
+        }
+
         if (isPremium) {
-            saveImage()
+            performSave()
         } else {
             actionCount++
             if (actionCount % 3 == 0) {
@@ -357,7 +382,7 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                         activity = activity,
                         onReward = {
                             earned = true
-                            saveImage()
+                            performSave()
                         },
                         onClosed = {
                             if (!earned) {
@@ -369,7 +394,7 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                         }
                     )
                 } else {
-                    saveImage()
+                    performSave()
                 }
             }
         }
@@ -580,6 +605,39 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
             }
         }
 
+        // AI Upscaling spinner — shown while backend runs FCRSNN enhancement
+        AnimatedVisibility(
+            visible = isUpscaling,
+            enter = fadeIn(tween(250)),
+            exit  = fadeOut(tween(250)),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.96f),
+                tonalElevation = 8.dp,
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = Color(0xFF8B5CF6),
+                        strokeWidth = 2.5.dp
+                    )
+                    Text(
+                        "AI enhancing\u2026",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp
+                    )
+                }
+            }
+        }
+
         // Beautiful Save Feedback Overlay
         AnimatedVisibility(
             visible = saveFeedback != null,
@@ -635,13 +693,9 @@ fun GeminiEraserApp(billingManager: BillingManager, adManager: AdManager) {
                 bitmap    = resultBitmap!!,
                 isPremium = isPremium,
                 onDismiss = { showResolutionPicker = false },
-                onSelect  = { maxPx, requiresPro ->
+                onSelect  = { maxPx, scale ->
                     showResolutionPicker = false
-                    if (requiresPro && !isPremium) {
-                        showPaywallScreen = true
-                    } else {
-                        onSave(maxPx)
-                    }
+                    onSave(maxPx, scale)
                 },
                 onGoPro   = {
                     showResolutionPicker = false
@@ -1465,14 +1519,18 @@ fun decodeBitmapFromUri(context: Context, uri: Uri): Bitmap? {
 private data class ResolutionTier(
     val label: String,
     val hint: String,
-    val maxPx: Int,       // Int.MAX_VALUE = save at original size
+    val maxPx: Int,          // Input size cap before upscaling (or final size for Low)
     val isPro: Boolean,
+    val upscaleScale: Int,   // 0 = no AI upscale, 2 = FSRCNN 2×, 4 = FSRCNN 4×
 )
 
 private val RESOLUTION_TIERS = listOf(
-    ResolutionTier("Low",      "Smaller file, quick share", 720,           isPro = false),
-    ResolutionTier("High",     "Sharp & detailed",          1080,          isPro = true),
-    ResolutionTier("Max",      "Maximum possible quality",  Int.MAX_VALUE, isPro = true),
+    // Low:  resize to 720p on-device, no AI enhancement — fast & free
+    ResolutionTier("Low",  "Smaller file, quick share",     720, isPro = false, upscaleScale = 0),
+    // High: cap at 720px then AI 2× → delivers ~1440p with real edge sharpening
+    ResolutionTier("High", "AI-enhanced, sharp & detailed", 720, isPro = true,  upscaleScale = 2),
+    // Max:  cap at 720px then AI 4× → delivers ~2880p (4K-quality for large photos)
+    ResolutionTier("Max",  "AI 4× upscale, maximum detail",720, isPro = true,  upscaleScale = 4),
 )
 
 @Composable
@@ -1480,7 +1538,7 @@ fun ResolutionPickerSheet(
     bitmap: Bitmap,
     isPremium: Boolean,
     onDismiss: () -> Unit,
-    onSelect: (Int, Boolean) -> Unit,
+    onSelect: (Int, Int) -> Unit,   // (targetMaxPx, upscaleScale)
     onGoPro: () -> Unit,
 ) {
     val origW = bitmap.width
@@ -1561,20 +1619,21 @@ fun ResolutionPickerSheet(
                 val origMax = maxOf(origW, origH)
                 RESOLUTION_TIERS.forEach { tier ->
                     val locked = tier.isPro && !isPremium
-                    val targetDim = when (tier.label) {
-                        "Low" -> minOf(origMax, 720)
-                        "High" -> maxOf(1080, minOf(origMax, 1920))
-                        else -> maxOf(origMax, 2160) // "Max" gives an upscaled premium feel if small
-                    }
-                    val r = targetDim.toFloat() / origMax
-                    val outW = (origW * r).toInt()
-                    val outH = (origH * r).toInt()
+                    // Compute output dimensions based on upscale scale
+                    val inputPx  = minOf(origMax, tier.maxPx)   // capped input before AI
+                    val finalPx  = inputPx * maxOf(1, tier.upscaleScale)  // after AI upscale
+                    val ratio    = finalPx.toFloat() / origMax
+                    val outW     = (origW * ratio).toInt().coerceAtLeast(1)
+                    val outH     = (origH * ratio).toInt().coerceAtLeast(1)
+
+                    val isAiTier = tier.upscaleScale >= 2
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                if (locked) onGoPro() else onSelect(targetDim, tier.isPro)
+                                if (locked) onGoPro()
+                                else onSelect(tier.maxPx, tier.upscaleScale)
                             }
                             .padding(vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1601,6 +1660,21 @@ fun ResolutionPickerSheet(
                                         modifier = Modifier
                                             .background(
                                                 Color(0xFFFFAB00).copy(alpha = 0.12f),
+                                                RoundedCornerShape(4.dp)
+                                            )
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                } else if (isAiTier && isPremium) {
+                                    // AI Enhanced badge for unlocked PRO tiers
+                                    Text(
+                                        "✦ AI",
+                                        color = Color(0xFF8B5CF6),
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.5.sp,
+                                        modifier = Modifier
+                                            .background(
+                                                Color(0xFF8B5CF6).copy(alpha = 0.12f),
                                                 RoundedCornerShape(4.dp)
                                             )
                                             .padding(horizontal = 6.dp, vertical = 2.dp)
@@ -1653,7 +1727,7 @@ fun ResolutionPickerSheet(
                                 fontWeight = FontWeight.SemiBold,
                             )
                             Text(
-                                "Unlock High & Max quality saves",
+                                "Unlock AI upscaling + High & Max saves",
                                 color = Color(0xFFFFAB00).copy(alpha = 0.6f),
                                 fontSize = 11.sp,
                             )
