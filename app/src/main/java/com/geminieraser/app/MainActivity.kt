@@ -1459,22 +1459,19 @@ fun decodeBitmapFromUri(context: Context, uri: Uri): Bitmap? {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// RESOLUTION PICKER BOTTOM SHEET
+// RESOLUTION PICKER — minimal 3-option sheet
 // ────────────────────────────────────────────────────────────────────────────
 private data class ResolutionTier(
     val label: String,
-    val subLabel: String,
-    val maxPx: Int,          // Int.MAX_VALUE = original
+    val hint: String,
+    val maxPx: Int,       // Int.MAX_VALUE = save at original size
     val isPro: Boolean,
-    val emoji: String,
 )
 
 private val RESOLUTION_TIERS = listOf(
-    ResolutionTier("480p",     "Quick share · smallest file",  480,          isPro = false, "📱"),
-    ResolutionTier("720p",     "Standard quality · fast save", 720,          isPro = false, "✨"),
-    ResolutionTier("1080p",    "Full HD · crisp & clear",      1080,         isPro = true,  "🔥"),
-    ResolutionTier("1440p",    "Quad HD · ultra sharp",        1440,         isPro = true,  "💎"),
-    ResolutionTier("Original", "Max quality · lossless PNG",   Int.MAX_VALUE, isPro = true, "👑"),
+    ResolutionTier("Low",      "Smaller file, quick share", 720,           isPro = false),
+    ResolutionTier("High",     "Sharp & detailed",          1080,          isPro = true),
+    ResolutionTier("Original", "Maximum quality",           Int.MAX_VALUE, isPro = true),
 )
 
 @Composable
@@ -1488,173 +1485,158 @@ fun ResolutionPickerSheet(
     val origW = bitmap.width
     val origH = bitmap.height
 
+    // Dim scrim — tap outside to dismiss
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.55f))
+            .background(Color.Black.copy(alpha = 0.5f))
             .clickable(onClick = onDismiss),
         contentAlignment = Alignment.BottomCenter
     ) {
-        BoxWithConstraints(
-            Modifier
+        // Sheet — consume taps so they don't dismiss
+        Surface(
+            modifier = Modifier
                 .fillMaxWidth()
-                .clickable(enabled = false, onClick = {}) // consume clicks on sheet
+                .clickable(enabled = false, onClick = {}),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            color = Color(0xFF141420),
         ) {
-            val isWide    = maxWidth > 480.dp
-            val sheetPad  = if (isWide) 32.dp else 20.dp
-            val tileSize  = if (isWide) 160.dp else Dp.Unspecified
-
-            Surface(
-                shape  = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-                color  = Color(0xFF1A1A2E),
-                tonalElevation = 8.dp,
-                modifier = Modifier.fillMaxWidth()
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 24.dp, vertical = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(horizontal = sheetPad, vertical = 24.dp)
-                ) {
-                    // ── Handle bar ────────────────────────────────────────
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Box(
-                            Modifier
-                                .width(40.dp).height(4.dp)
-                                .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(2.dp))
-                        )
-                    }
-                    Spacer(Modifier.height(18.dp))
 
-                    // ── Title row ─────────────────────────────────────────
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                // Handle
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier
+                            .width(36.dp).height(3.dp)
+                            .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
+                    )
+                }
+
+                Spacer(Modifier.height(22.dp))
+
+                // Header
+                Text(
+                    "Save as",
+                    color = Color.White,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "${origW} × ${origH}",
+                    color = Color.White.copy(alpha = 0.35f),
+                    fontSize = 12.sp,
+                )
+
+                Spacer(Modifier.height(24.dp))
+
+                // Options
+                RESOLUTION_TIERS.forEach { tier ->
+                    val locked = tier.isPro && !isPremium
+                    val outW = if (tier.maxPx == Int.MAX_VALUE) origW
+                               else { val r = tier.maxPx.toFloat() / maxOf(origW, origH); if (r < 1f) (origW * r).toInt() else origW }
+                    val outH = if (tier.maxPx == Int.MAX_VALUE) origH
+                               else { val r = tier.maxPx.toFloat() / maxOf(origW, origH); if (r < 1f) (origH * r).toInt() else origH }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (locked) onGoPro() else onSelect(tier.maxPx, tier.isPro)
+                            }
+                            .padding(vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Column(Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    "${outW} × ${outH}",
+                                    color = if (locked) Color.White.copy(alpha = 0.35f) else Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                if (locked) {
+                                    // Minimal PRO pill
+                                    Text(
+                                        "PRO",
+                                        color = Color(0xFFFFAB00),
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 1.sp,
+                                        modifier = Modifier
+                                            .background(
+                                                Color(0xFFFFAB00).copy(alpha = 0.12f),
+                                                RoundedCornerShape(4.dp)
+                                            )
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
                             Text(
-                                "Choose Quality",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = if (isWide) 22.sp else 18.sp,
-                            )
-                            Text(
-                                "Original: ${origW} × ${origH}px",
-                                color = Color.White.copy(alpha = 0.45f),
+                                "${tier.label}  ·  ${tier.hint}",
+                                color = Color.White.copy(alpha = if (locked) 0.2f else 0.4f),
                                 fontSize = 12.sp,
                             )
                         }
-                        if (!isPremium) {
-                            // Motivator badge
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = Color(0xFFFFAB00).copy(alpha = 0.15f),
-                                border = BorderStroke(1.dp, Color(0xFFFFAB00).copy(alpha = 0.6f))
-                            ) {
-                                Row(
-                                    Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                ) {
-                                    Text("⭐", fontSize = 12.sp)
-                                    Text(
-                                        "PRO unlocks 3 more",
-                                        color = Color(0xFFFFAB00),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(20.dp))
-
-                    // ── Tier tiles ────────────────────────────────────────
-                    if (isWide) {
-                        // Landscape / tablet: horizontal scrollable row
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            contentPadding = PaddingValues(horizontal = 2.dp)
-                        ) {
-                            items(RESOLUTION_TIERS) { tier ->
-                                ResolutionTile(
-                                    tier          = tier,
-                                    origW         = origW,
-                                    origH         = origH,
-                                    isPremium     = isPremium,
-                                    fixedWidth    = tileSize,
-                                    onSelect      = onSelect,
-                                    onGoPro       = onGoPro,
-                                )
-                            }
-                        }
-                    } else {
-                        // Portrait phone: vertical column
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            RESOLUTION_TIERS.forEach { tier ->
-                                ResolutionTile(
-                                    tier          = tier,
-                                    origW         = origW,
-                                    origH         = origH,
-                                    isPremium     = isPremium,
-                                    fixedWidth    = Dp.Unspecified,
-                                    onSelect      = onSelect,
-                                    onGoPro       = onGoPro,
-                                )
-                            }
-                        }
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = if (locked) Color.White.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.5f),
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
 
-                    // ── Pro upsell banner ─────────────────────────────────
-                    if (!isPremium) {
-                        Spacer(Modifier.height(18.dp))
-                        Surface(
-                            shape  = RoundedCornerShape(16.dp),
-                            modifier = Modifier
+                    // Divider between items (not after last)
+                    if (tier != RESOLUTION_TIERS.last()) {
+                        Box(
+                            Modifier
                                 .fillMaxWidth()
-                                .clickable(onClick = onGoPro),
-                            color  = Color.Transparent,
-                            border = BorderStroke(
-                                1.5.dp,
-                                Brush.linearGradient(listOf(Color(0xFFFFAB00), Color(0xFFFF6B35)))
+                                .height(0.5.dp)
+                                .background(Color.White.copy(alpha = 0.07f))
+                        )
+                    }
+                }
+
+                // Pro upsell — only shown to free users, clean single line
+                if (!isPremium) {
+                    Spacer(Modifier.height(20.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFFFFAB00).copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+                            .clickable(onClick = onGoPro)
+                            .padding(horizontal = 16.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text("✦", color = Color(0xFFFFAB00), fontSize = 14.sp)
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Upgrade to PRO",
+                                color = Color(0xFFFFAB00),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
                             )
-                        ) {
-                            Box(
-                                Modifier
-                                    .background(
-                                        Brush.linearGradient(
-                                            listOf(
-                                                Color(0xFFFFAB00).copy(alpha = 0.12f),
-                                                Color(0xFFFF6B35).copy(alpha = 0.08f)
-                                            )
-                                        )
-                                    )
-                                    .padding(horizontal = 18.dp, vertical = 14.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Text("👑", fontSize = 28.sp)
-                                    Column(Modifier.weight(1f)) {
-                                        Text(
-                                            "Unlock PRO — Save in Full HD, 1440p & Original",
-                                            color = Color(0xFFFFAB00),
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp,
-                                        )
-                                        Text(
-                                            "No ads · Highest quality · One-tap saves",
-                                            color = Color.White.copy(alpha = 0.55f),
-                                            fontSize = 11.sp,
-                                        )
-                                    }
-                                    Icon(
-                                        Icons.Default.ChevronRight,
-                                        contentDescription = null,
-                                        tint = Color(0xFFFFAB00),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
+                            Text(
+                                "Unlock High & Original quality saves",
+                                color = Color(0xFFFFAB00).copy(alpha = 0.6f),
+                                fontSize = 11.sp,
+                            )
                         }
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = Color(0xFFFFAB00).copy(alpha = 0.7f),
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
                 }
             }
@@ -1662,103 +1644,7 @@ fun ResolutionPickerSheet(
     }
 }
 
-@Composable
-private fun ResolutionTile(
-    tier: ResolutionTier,
-    origW: Int,
-    origH: Int,
-    isPremium: Boolean,
-    fixedWidth: Dp,
-    onSelect: (Int, Boolean) -> Unit,
-    onGoPro: () -> Unit,
-) {
-    val locked    = tier.isPro && !isPremium
-    val maxPx     = tier.maxPx
-    val outW      = if (maxPx == Int.MAX_VALUE) origW else minOf(origW, maxPx)
-    val outH      = if (maxPx == Int.MAX_VALUE) origH else {
-        val ratio = maxPx.toFloat() / maxOf(origW, origH)
-        if (ratio < 1f) (origH * ratio).toInt() else origH
-    }
-    val sizeLabel = "${outW} × ${outH}"
 
-    val borderBrush = if (locked)
-        Brush.linearGradient(listOf(Color(0xFFFFAB00).copy(alpha=0.6f), Color(0xFFFF6B35).copy(alpha=0.6f)))
-    else
-        Brush.linearGradient(listOf(Color(0xFF7C3AED).copy(alpha=0.6f), Color(0xFF06B6D4).copy(alpha=0.6f)))
-
-    val bgColor = if (locked) Color(0xFFFFAB00).copy(alpha=0.07f) else Color(0xFF7C3AED).copy(alpha=0.07f)
-
-    val widthMod = if (fixedWidth != Dp.Unspecified) Modifier.width(fixedWidth) else Modifier.fillMaxWidth()
-
-    Surface(
-        modifier  = widthMod
-            .clickable {
-                if (locked) onGoPro() else onSelect(tier.maxPx, tier.isPro)
-            },
-        shape     = RoundedCornerShape(16.dp),
-        color     = Color.Transparent,
-        border    = BorderStroke(1.5.dp, borderBrush),
-    ) {
-        Box(Modifier.background(bgColor).padding(horizontal = 16.dp, vertical = 14.dp)) {
-            Column {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(tier.emoji, fontSize = 18.sp)
-                    Text(
-                        tier.label,
-                        color = if (locked) Color(0xFFFFAB00) else Color.White,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 16.sp,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    if (locked) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFFFFAB00)
-                        ) {
-                            Text(
-                                "PRO",
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                                color = Color.Black,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 10.sp,
-                                letterSpacing = 0.8.sp
-                            )
-                        }
-                    } else {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF10B981).copy(alpha = 0.2f)
-                        ) {
-                            Text(
-                                "FREE",
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                                color = Color(0xFF10B981),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 10.sp,
-                                letterSpacing = 0.8.sp
-                            )
-                        }
-                    }
-                }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    sizeLabel,
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    tier.subLabel,
-                    color = if (locked) Color(0xFFFFAB00).copy(alpha=0.7f) else Color.White.copy(alpha=0.4f),
-                    fontSize = 11.sp,
-                )
-            }
-        }
-    }
-}
 
 fun saveBitmapToGallery(context: Context, bitmap: Bitmap): Boolean {
     val cv = ContentValues().apply { 
