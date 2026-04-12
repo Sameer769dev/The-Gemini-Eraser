@@ -31,7 +31,7 @@ object ObjectEraser {
     // Set IS_PRODUCTION = true and fill in your HF URL before releasing the app!
     private const val IS_PRODUCTION = true
     private const val LOCAL_BASE      = "http://10.0.2.2:8000"
-    private const val PRODUCTION_BASE = "https://samir87699-vanishly-ai.hf.space"
+    private const val PRODUCTION_BASE = "https://samir87699-gemini-eraser-ai.hf.space"
     private val BASE_URL = if (IS_PRODUCTION) PRODUCTION_BASE else LOCAL_BASE
 
     private val INPAINT_URL  = "$BASE_URL/inpaint"

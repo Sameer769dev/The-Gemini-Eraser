@@ -15,19 +15,33 @@ android {
         applicationId = "com.vanishly.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 4
-        versionName = "4.0"
+        versionCode = 6
+        versionName = "6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("vanishly-release.keystore")
+            storePassword = "vanishly2025"
+            keyAlias = "vanishly"
+            keyPassword = "vanishly2025"
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
